@@ -265,12 +265,12 @@ NVIDIA_AV1_QUALITY_LEVELS = [24, 28, 32, 36, 40, 44, 48]
 #   Intel QSV      QP 1~51   → 30 是"均衡"
 #   NVENC HEVC     CQ 0~51   → 26 是"均衡 / 推荐"
 #   NVENC AV1      CQ 0~255  → 40 是"均衡 / 推荐"
-DEFAULT_VIDEO_QUALITY = 32
+DEFAULT_VIDEO_QUALITY = 30
 
 
 def default_quality(platform_key: str, codec_key: str) -> int:
     if platform_key == "intel":
-        return 32
+        return 30
     return 40 if codec_key == "av1" else 26
 
 # 视频码率上限候选（kbps）——不限制 / 1.0 / 1.5 / 2.0 / 2.5 / 3.0 / 自定义
@@ -303,9 +303,11 @@ BITRATE_BUFFER_SECONDS = 2.0
 # 整片实测（1290x2796 60fps 录屏 55.8s，ICQ q32，全片平均码率）：
 #   4.2s=2008 kbps  8.3s=1926(-4.1%)  16.7s=1882(-6.3%)  33s=1857(-7.5%)  50s=1862(-7.3%)
 #   720p 素材：4.2s=435 → 16.7s=426（-2.1%）
-# 取 8 秒：拿到约一半收益（-4.1%），同时保持拖动定位体验。
+# 取 2 秒：实测 Apple 原片关键帧间隔约 0.94 秒（52 个关键帧/48 秒），
+# 越接近它拖动越跟手；2 秒的体积代价约 +6~9%，1 秒约 +10~15%。
 # 想更省体积可以调到 15~30；想更利落可以调到 4~5（代价就是上面那几个百分点）。
-GOP_SECONDS = 8.0
+GOP_SECONDS = 2.0
+GOP_AUTO = True                    # 自适应：相机/10bit/4K → 1 秒；其余 → GOP_SECONDS
 
 # 音频质量完全独立于视频质量。
 # 使用 Opus VBR，实际平均码率会因内容而略有波动。默认 64k。
@@ -1341,7 +1343,7 @@ def apply_quality_floor(mode: str) -> None:
     if mode in ("1", "off"):
         ICQ_QUALITY_FLOOR = 0
         return
-    if mode in ("5", "custom"):
+    if mode in ("4", "custom"):
         while True:
             raw = input("请输入质量地板 Q（20~51，b 返回）：").strip()
             if _is_back(raw):
@@ -1361,23 +1363,24 @@ def apply_quality_floor(mode: str) -> None:
         print("   质量地板 = Q%d" % ICQ_QUALITY_FLOOR)
 
 
-GOP_CHOICES = [4.0, 8.0, 10.0]
+GOP_CHOICES = [1.0, 2.0, 4.0]              # 菜单键 2/3/4 对应 1/2/4 秒
 
 
 def ask_gop() -> str:
     rows = [
-        ("1", "4 秒", "剪辑/拖动友好，体积约 +3~5%"),
-        ("2", "8 秒（默认）", "收益拐点，约吃到 90% 的省码率收益"),
-        ("3", "10 秒", "再长收益进入噪声区，封顶模式易脉动"),
-        ("4", "自定义", "输入秒数 1~30"),
+        ("1", "自适应（默认）", "苹果原相机/10bit/4K → 1 秒；其余 → 2 秒（按实测）"),
+        ("2", "1 秒", "最跟手；实测相机/录屏/电影只有 GOP1 才跟手"),
+        ("3", "2 秒", "比 1 秒省约 10%，其余素材手感尚可"),
+        ("4", "4 秒", "比 2 秒再省 5~8%；实测 3/4 秒手感接近，6 秒起不跟手"),
+        ("5", "自定义", "输入秒数（1~30）"),
     ]
-    return ask_choice("【11. 关键帧间隔 GOP】", rows, default="2", default_label="8 秒")
+    return ask_choice("【11. 关键帧间隔 GOP】", rows, default="1", default_label="自适应")
 
 
 def apply_gop_choice(mode: str) -> None:
     """把选择写进 GOP_SECONDS（calculate_gop 运行时读取）。"""
     global GOP_SECONDS
-    if mode in ("4", "custom"):
+    if mode in ("5", "custom"):
         while True:
             raw = input("请输入 GOP 秒数（1~30，b 返回）：").strip()
             if _is_back(raw):
@@ -1394,10 +1397,11 @@ def apply_gop_choice(mode: str) -> None:
             ui_warn("输入无效，请输入 1~30。")
         return
     try:
-        idx = int(mode) - 1
+        idx = int(mode) - 2          # 键 2/3/4 → 1/2/4 秒（键 1 是自适应）
     except ValueError:
         return
     if 0 <= idx < len(GOP_CHOICES):
+        GOP_AUTO = False
         GOP_SECONDS = GOP_CHOICES[idx]
         print("   GOP 已设为 %.1f 秒" % GOP_SECONDS)
 
@@ -1670,7 +1674,8 @@ def _save_env_cache(payload: dict) -> None:
 
 
 DOVI_TOOL_NAME = "dovi_tool"
-_DV_PRESERVED_OUTPUT = []      # 已被 DV 流程处理过的产物（避免重复补写元数据）
+_DV_PRESERVED_OUTPUT = []      # 已被 DV 流程处理过的产物
+_META_APPLIED = set()          # 已补写过元数据的产物（幂等，防止重复处理）
 DOVI_MODE = "off"           # off = 一律输出 HLG（默认：亮度忠实、体积最优）
                         # auto = 尝试保留 DV（实验性：实测亮度偏移、体积 +40%）
 
@@ -1804,14 +1809,26 @@ def _source_meta_args(source: Path) -> list:
 
 
 def _apply_source_metadata(encoded: Path, source: Path) -> bool:
-    """非 DV 产物：用 -c copy 补写源元数据（原地替换）。DV 产物不要走这里。"""
-    args = _source_meta_args(source)
-    if not args or not encoded.exists():
+    """非 DV 产物：用 -c copy 补写源元数据与旋转（原地替换）。DV 产物不要走这里。
+
+    幂等：同一产物只处理一次（防止被重试/循环反复触发）。
+    """
+    key = str(encoded)
+    if key in _META_APPLIED:
         return False
-    tmp = encoded.with_name(encoded.stem + "_meta" + encoded.suffix)
-    # 零拷贝路径下 ffmpeg 无法 autorotate，Display Matrix 会丢 → 相机竖拍会变横，
-    # 这里按源角度用输入侧选项补回（非 0 才加）。
+    args = _source_meta_args(source)
     rot = _source_rotation(source)
+    if (not args and not rot) or not encoded.exists():
+        _META_APPLIED.add(key)
+        return False
+    _META_APPLIED.add(key)
+    tmp = encoded.with_name("_tmp_" + encoded.stem + encoded.suffix)
+    try:
+        if tmp.exists():
+            tmp.unlink()
+    except Exception:
+        pass
+    # 零拷贝路径下 ffmpeg 无法 autorotate，Display Matrix 会丢 → 按源角度补回
     cmd = [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "error"]
     if rot:
         cmd += ["-display_rotation:v:0", str(rot)]
@@ -1824,6 +1841,7 @@ def _apply_source_metadata(encoded: Path, source: Path) -> bool:
         tmp.unlink(missing_ok=True)
     except Exception:
         pass
+    _run_log("[%s] 元数据/旋转补写失败：%s" % (time.strftime("%H:%M:%S"), encoded.name))
     return False
 
 
@@ -3602,8 +3620,12 @@ def build_ffmpeg_command(
     encoder = encoder_name(platform_key, codec_key)
     caps = ENCODER_CAPABILITIES.get(encoder, EncoderCapabilities(encoder))
     audio_bitrate = AUDIO_BITRATES[audio_quality]
-    gop = calculate_gop(info.fps)
-
+    _gop_secs = None
+    if GOP_AUTO and (getattr(info, "is_10bit", False)
+                       or max(getattr(info, "width", 0) or 0,
+                              getattr(info, "height", 0) or 0) >= 3000):
+        _gop_secs = 1.0        # 原相机/10bit/4K：只有 1 秒才跟手（实测）
+    gop = calculate_gop(info.fps, _gop_secs)
     args = [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "warning"]
     args += decode_args
     args += [
@@ -3652,6 +3674,10 @@ def build_ffmpeg_command(
             args += quality_option_args(platform_key, plan.quality or video_quality, disabled_features)
 
         add_if_supported("g", str(gop), generic=True)
+
+        # 每个关键帧都设成 IDR（闭合 GOP）：QSV 默认 idr_interval=0 只有首帧是 IDR，
+        # 会导致拖动定位不准、点击进度条跳回前几秒。
+        add_if_supported("forced_idr", "1", generic=True)
 
         if codec_key == "hevc" and info.is_10bit and caps.has("profile"):
             args += ["-profile:v", "main10"]
@@ -3724,6 +3750,8 @@ def build_ffmpeg_command(
         # 注意：放在 b_ref_mode 判断之外，避免该特性被禁用时一并失效。
         args += ["-spatial-aq", "1", "-temporal-aq", "1"]
         args += ["-rc-lookahead", "32"]
+        # 关键帧设为 IDR（闭合 GOP），与 QSV 侧一致
+        add_if_supported("forced-idr", "1", generic=True)
         _nv_q = int(getattr(plan, "quality", 0) or 0)
         if _nv_q and plan.is_capped and plan.cap_kbps:
             # 上限模式：给 QP 一个夹持区间（质量地板 / 省码率空间）
