@@ -1670,6 +1670,7 @@ def _save_env_cache(payload: dict) -> None:
 
 
 DOVI_TOOL_NAME = "dovi_tool"
+_DV_PRESERVED_OUTPUT = []      # 已被 DV 流程处理过的产物（避免重复补写元数据）
 DOVI_MODE = "off"           # off = 一律输出 HLG（默认：亮度忠实、体积最优）
                         # auto = 尝试保留 DV（实验性：实测亮度偏移、体积 +40%）
 
@@ -1913,6 +1914,10 @@ def preserve_dolby_vision(encoded: Path, source: Path, quality: int = 0) -> bool
         if not transplant_dv_config(fixed, source):
             return False
         shutil.move(str(fixed), str(dest))
+        try:
+            _DV_PRESERVED_OUTPUT.append(str(dest))
+        except Exception:
+            pass
         return True
     except Exception:
         return False
@@ -5539,7 +5544,8 @@ def main(start_step: int = 1) -> int:
 
                 results.append(result)
                 if result.status != "failed" and result.output and result.source:
-                    if not is_dolby_vision(Path(result.source)):
+                    if str(result.output) not in _DV_PRESERVED_OUTPUT:
+                        # 不能按「源是否 DV」跳过：【13】=关 时源仍是 DV，会连旋转和元数据一起丢
                         _apply_source_metadata(Path(result.output), Path(result.source))
                 if DOVI_MODE == "auto" and result.status != "failed" and result.output and is_dolby_vision(Path(result.source)):
                     _pq = getattr(getattr(result, "plan", None), "quality", None)
@@ -5616,7 +5622,8 @@ def main(start_step: int = 1) -> int:
                                      output=old.output or old.source, status="failed",
                                      error=f"重试时异常：{e}")
                     if result.status != "failed" and result.output and result.source:
-                        if not is_dolby_vision(Path(result.source)):
+                        if str(result.output) not in _DV_PRESERVED_OUTPUT:
+                            # 不能按「源是否 DV」跳过：【13】=关 时源仍是 DV，会连旋转和元数据一起丢
                             _apply_source_metadata(Path(result.output), Path(result.source))
                     if DOVI_MODE == "auto" and result.status != "failed" and result.output and is_dolby_vision(Path(result.source)):
                         _pq = getattr(getattr(result, "plan", None), "quality", None)
