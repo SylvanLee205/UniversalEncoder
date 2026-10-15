@@ -1670,7 +1670,8 @@ def _save_env_cache(payload: dict) -> None:
 
 
 DOVI_TOOL_NAME = "dovi_tool"
-DOVI_MODE = "auto"          # auto = DV 源保留杜比视界；off = 一律输出 HLG
+DOVI_MODE = "off"           # off = 一律输出 HLG（默认：亮度忠实、体积最优）
+                        # auto = 尝试保留 DV（实验性：实测亮度偏移、体积 +40%）
 
 
 def find_dovi_tool() -> Optional[str]:
@@ -1682,6 +1683,22 @@ def find_dovi_tool() -> Optional[str]:
         except Exception:
             pass
     return shutil.which(DOVI_TOOL_NAME)
+
+
+def _source_rotation(source: Path) -> int:
+    """读取源的显示旋转角度（Display Matrix）。竖拍 iPhone 视频是 1920x1080 + 旋转 90。"""
+    try:
+        cp = run_command([ffprobe_exe(), "-v", "error", "-select_streams", "v:0",
+                          "-show_entries", "stream_side_data=side_data_type,rotation",
+                          "-of", "json", str(source)], timeout=60)
+        d = json.loads(cp.stdout or "{}")
+        for st in d.get("streams") or []:
+            for sd in st.get("side_data_list") or []:
+                if "Display Matrix" in str(sd.get("side_data_type", "")):
+                    return int(sd.get("rotation") or 0)
+    except Exception:
+        pass
+    return 0
 
 
 def is_dolby_vision(source: Path) -> bool:
@@ -1746,8 +1763,11 @@ def transplant_dv_config(video: Path, dv_source: Path) -> bool:
                     and entry[0] <= b[0] < entry[0] + entry[1]), None)
         if not hvc:
             return False
+        # 祖先盒按偏移包含判断；注意 **sample entry 自身也必须 +N**，
+        # 否则解析器会越过它的声明末尾去读后面的 stts/stsc 数据（苹果解析器直接拒绝）。
         ancestors = [b for b in boxes
                      if b[2] in _DV_CONTAINERS and b[0] <= entry[0] < b[0] + b[1]]
+        ancestors.append(entry)
         data = bytearray(xs)
         n = len(box)
         edits = [(a[0], int.from_bytes(xs[a[0]:a[0] + 4], "big") + n) for a in ancestors]
@@ -1762,16 +1782,100 @@ def transplant_dv_config(video: Path, dv_source: Path) -> bool:
         return False
 
 
-def preserve_dolby_vision(encoded: Path, source: Path) -> bool:
+def _source_meta_args(source: Path) -> list:
+    """从源提取可保留的元数据（创建时间 + Apple 键），返回 ffmpeg -metadata 参数。
+
+    注意：iPhone 的"相机/镜头"细节存在定时元数据轨里，ffmpeg 无法复制；
+    这里保留的是 creation_time 与 ilst 里的 com.apple.quicktime.* 键。
+    """
+    out = []
+    try:
+        cp = run_command([ffprobe_exe(), "-v", "error", "-show_format", "-of", "json",
+                          str(source)], timeout=60)
+        tags = ((json.loads(cp.stdout or "{}").get("format") or {}).get("tags") or {})
+        for k, v in tags.items():
+            kl = k.lower()
+            if kl == "creation_time" or kl.startswith("com.apple.quicktime."):
+                out += ["-metadata", "%s=%s" % (k, v)]
+    except Exception:
+        pass
+    return out
+
+
+def _apply_source_metadata(encoded: Path, source: Path) -> bool:
+    """非 DV 产物：用 -c copy 补写源元数据（原地替换）。DV 产物不要走这里。"""
+    args = _source_meta_args(source)
+    if not args or not encoded.exists():
+        return False
+    tmp = encoded.with_name(encoded.stem + "_meta" + encoded.suffix)
+    # 零拷贝路径下 ffmpeg 无法 autorotate，Display Matrix 会丢 → 相机竖拍会变横，
+    # 这里按源角度用输入侧选项补回（非 0 才加）。
+    rot = _source_rotation(source)
+    cmd = [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "error"]
+    if rot:
+        cmd += ["-display_rotation:v:0", str(rot)]
+    cmd += ["-i", str(encoded), "-map", "0", "-c", "copy",
+            "-movflags", "+use_metadata_tags"] + args + [str(tmp)]
+    if run_command(cmd, timeout=1800).returncode == 0 and tmp.exists() and tmp.stat().st_size > 1024:
+        shutil.move(str(tmp), str(encoded))
+        return True
+    try:
+        tmp.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return False
+
+
+def _has_b_frames(path: Path) -> bool:
+    """编码产物是否含 B 帧（有 B 帧 → 解码顺序≠显示顺序 → RPU 与帧错配 → 播放抽搐）。"""
+    try:
+        cp = run_command([ffprobe_exe(), "-v", "error", "-select_streams", "v:0",
+                          "-show_entries", "stream=has_b_frames",
+                          "-of", "json", str(path)], timeout=60)
+        st = (json.loads(cp.stdout or "{}").get("streams") or [{}])[0]
+        return int(st.get("has_b_frames") or 0) > 0
+    except Exception:
+        return False
+
+
+def _source_fps(source: Path) -> float:
+    try:
+        cp = run_command([ffprobe_exe(), "-v", "error", "-select_streams", "v:0",
+                          "-show_entries", "stream=r_frame_rate",
+                          "-of", "json", str(source)], timeout=60)
+        st = (json.loads(cp.stdout or "{}").get("streams") or [{}])[0]
+        num, _, den = str(st.get("r_frame_rate") or "0/1").partition("/")
+        return float(num) / float(den or 1)
+    except Exception:
+        return 0.0
+
+
+def preserve_dolby_vision(encoded: Path, source: Path, quality: int = 0) -> bool:
     """DV 保留完整流程（任一步失败即回退，保留 HLG 产物）。"""
     tool = find_dovi_tool()
     if not tool or not encoded.exists():
         return False
     if not is_dolby_vision(source):
         return False
+    dest = encoded                      # 最终产物必须写回这里（不能被重编产物覆盖）
     work = encoded.parent / ("_dv_" + encoded.stem)
     try:
         work.mkdir(parents=True, exist_ok=True)
+        if quality and _has_b_frames(encoded):
+            no_bf = work / "nobf.mp4"
+            fps = _source_fps(source)
+            cmd = [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "error",
+                   "-hwaccel", "qsv", "-hwaccel_output_format", "qsv", "-i", str(source),
+                   "-map", "0:v:0", "-an", "-c:v", "hevc_qsv", "-preset", "medium",
+                   "-global_quality:v", str(int(quality)), "-profile:v", "main10", "-bf", "0"]
+            if fps > 0:
+                cmd += ["-g", str(calculate_gop(fps))]
+            cmd.append(str(no_bf))
+            if run_command(cmd, timeout=3600).returncode == 0 and no_bf.exists():
+                _run_log("[%s] 杜比视界：无 B 帧重编视频以消除 RPU 帧序错配" % time.strftime("%H:%M:%S"))
+                encoded = no_bf
+            else:
+                _run_log("[%s] 杜比视界：无 B 帧重编失败，沿用原编码产物" % time.strftime("%H:%M:%S"))
         src_es, rpu = work / "src.hevc", work / "rpu.bin"
         enc_es, dv_es = work / "enc.hevc", work / "dv.hevc"
         fixed = work / (encoded.stem + "_dv.mp4")
@@ -1792,15 +1896,23 @@ def preserve_dolby_vision(encoded: Path, source: Path) -> bool:
                        timeout=900).returncode != 0:
             return False
         # ③ 重封装（hvc1 而不是 dvh1；-strict unofficial 才写 DV 相关盒）
-        if run_command([ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "error",
-                        "-i", str(dv_es), "-i", str(encoded), "-map", "0:v:0", "-map", "1:a:0?",
-                        "-c", "copy", "-tag:v", "hvc1", "-strict", "unofficial",
-                        str(fixed)], timeout=900).returncode != 0:
+        _rot = _source_rotation(source)
+        # 裸 ES 往返会丢 Display Matrix；用**输入侧**的 -display_rotation 补回
+        # （实测 -metadata:s:v:0 rotate=N 会被 mp4 muxer 忽略）
+        _remux = [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "error"]
+        if _rot:
+            _remux += ["-display_rotation:v:0", str(_rot)]
+        _remux += ["-i", str(dv_es), "-i", str(encoded), "-map", "0:v:0", "-map", "1:a:0?",
+                   "-c", "copy", "-tag:v", "hvc1", "-strict", "unofficial",
+                   "-movflags", "+use_metadata_tags"]
+        _remux += _source_meta_args(source)
+        _remux.append(str(fixed))
+        if run_command(_remux, timeout=900).returncode != 0:
             return False
         # ④ 移植 dvvC 配置盒（否则播放器只当 HLG）
         if not transplant_dv_config(fixed, source):
             return False
-        shutil.move(str(fixed), str(encoded))
+        shutil.move(str(fixed), str(dest))
         return True
     except Exception:
         return False
@@ -1810,15 +1922,15 @@ def preserve_dolby_vision(encoded: Path, source: Path) -> bool:
 
 def ask_dolby_vision() -> str:
     rows = [
-        ("1", "自动（默认）", "DV 源保留杜比视界（仅安全模式）；无工具或失败则输出 HLG"),
-        ("2", "关", "一律输出 HLG（最快，跳过 DV 后处理）"),
+        ("1", "关（默认）", "输出 HLG：竖屏/亮度/时间位置都正确，体积最优（B 帧可用）"),
+        ("2", "保留杜比视界（实验性）", "有 DV 标志，但实测亮度偏亮、体积约 +40%、封面异常，不推荐"),
     ]
-    return ask_choice("【13. 杜比视界】", rows, default="1", default_label="自动")
+    return ask_choice("【13. 杜比视界】", rows, default="1", default_label="关")
 
 
 def apply_dolby_vision(mode: str) -> None:
     global DOVI_MODE
-    DOVI_MODE = "auto" if mode in ("1", "auto") else "off"
+    DOVI_MODE = "auto" if mode in ("2", "auto", "保留") else "off"
 
 
 def check_tools() -> None:
@@ -5426,8 +5538,13 @@ def main(start_step: int = 1) -> int:
                     )
 
                 results.append(result)
+                if result.status != "failed" and result.output and result.source:
+                    if not is_dolby_vision(Path(result.source)):
+                        _apply_source_metadata(Path(result.output), Path(result.source))
                 if DOVI_MODE == "auto" and result.status != "failed" and result.output and is_dolby_vision(Path(result.source)):
-                    if preserve_dolby_vision(Path(result.output), Path(result.source)):
+                    _pq = getattr(getattr(result, "plan", None), "quality", None)
+                    if preserve_dolby_vision(Path(result.output), Path(result.source),
+                                             int(_pq or 0)):
                         _run_log("[%s] 已保留杜比视界（RPU 注入 + dvvC 配置盒）" % time.strftime("%H:%M:%S"))
                 _log_result(result)
 
@@ -5498,8 +5615,13 @@ def main(start_step: int = 1) -> int:
                         new = Result(index=old.index, source=old.source,
                                      output=old.output or old.source, status="failed",
                                      error=f"重试时异常：{e}")
+                    if result.status != "failed" and result.output and result.source:
+                        if not is_dolby_vision(Path(result.source)):
+                            _apply_source_metadata(Path(result.output), Path(result.source))
                     if DOVI_MODE == "auto" and result.status != "failed" and result.output and is_dolby_vision(Path(result.source)):
-                        if preserve_dolby_vision(Path(result.output), Path(result.source)):
+                        _pq = getattr(getattr(result, "plan", None), "quality", None)
+                        if preserve_dolby_vision(Path(result.output), Path(result.source),
+                                                 int(_pq or 0)):
                             _run_log("[%s] 已保留杜比视界（RPU 注入 + dvvC 配置盒）" % time.strftime("%H:%M:%S"))
                     _log_result(new, tag=f"[第{attempt}次]")
                     if new.status != "failed":
