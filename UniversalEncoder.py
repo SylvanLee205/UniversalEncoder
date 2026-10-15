@@ -309,7 +309,8 @@ BITRATE_BUFFER_SECONDS = 2.0
 # 越接近它拖动越跟手；2 秒的体积代价约 +6~9%，1 秒约 +10~15%。
 # 想更省体积可以调到 15~30；想更利落可以调到 4~5（代价就是上面那几个百分点）。
 GOP_SECONDS = 2.0
-GOP_AUTO = True                    # 自适应：相机/10bit/4K → 1 秒；其余 → GOP_SECONDS
+GOP_AUTO = True
+PLATFORM_STATE = {"key": "intel"}   # 当前平台（供 DV 保留路径取编码器/解码链）                    # 自适应：相机/10bit/4K → 1 秒；其余 → GOP_SECONDS
 
 # 音频质量完全独立于视频质量。
 # 使用 Opus VBR，实际平均码率会因内容而略有波动。默认 64k。
@@ -1326,6 +1327,15 @@ def encoder_name(platform_key: str, codec_key: str) -> str:
 QUALITY_FLOOR_CHOICES = [34, 36, 38]
 
 
+def ask_advanced() -> str:
+    """高级设置开关：默认不显示（质量地板 / 杜比视界都属于此）。"""
+    rows = [
+        ("1", "不显示（默认）", "只用上面 11 项即可，绝大多数情况够用"),
+        ("2", "显示高级设置", "额外出现：质量地板、杜比视界（实验性）"),
+    ]
+    return ask_choice("【12. 高级设置】", rows, default="1", default_label="不显示")
+
+
 def ask_quality_floor() -> str:
     rows = [
         ("1", "关（默认）", "严格守住码率上限，允许把 Q 抬到很高"),
@@ -1883,10 +1893,18 @@ def preserve_dolby_vision(encoded: Path, source: Path, quality: int = 0) -> bool
         if quality and _has_b_frames(encoded):
             no_bf = work / "nobf.mp4"
             fps = _source_fps(source)
-            cmd = [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "error",
-                   "-hwaccel", "qsv", "-hwaccel_output_format", "qsv", "-i", str(source),
-                   "-map", "0:v:0", "-an", "-c:v", "hevc_qsv", "-preset", "medium",
-                   "-global_quality:v", str(int(quality)), "-profile:v", "main10", "-bf", "0"]
+            cmd = [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "error"]
+            cmd += decode_args_for(PLATFORM_STATE["key"])      # 零拷贝硬解链（Intel/NVIDIA 各自不同）
+            cmd += ["-i", str(source), "-map", "0:v:0", "-an"]
+            if PLATFORM_STATE["key"] == "nvidia":
+                cmd += ["-c:v", "hevc_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr",
+                        "-cq", str(quality or 30), "-b:v", "0",
+                        "-spatial-aq", "1", "-temporal-aq", "1",
+                        "-profile:v", "main10", "-bf", "0"]   # 同上：DV 必须禁 B 帧
+            else:
+                cmd += ["-c:v", "hevc_qsv", "-preset", "medium",
+                        "-global_quality:v", str(quality or DEFAULT_VIDEO_QUALITY),
+                        "-profile:v", "main10", "-bf", "0"]   # -bf 0 防 RPU 帧序错配（抽搐）
             if fps > 0:
                 cmd += ["-g", str(calculate_gop(fps))]
             cmd.append(str(no_bf))
@@ -2797,6 +2815,20 @@ def _encode_iterative(worker, base_args, plan, duration, cap_kbps, codec_key,
                               % known_q), flush=True)
             plan.quality = known_q
 
+    # 像素率兜底：该上限下去喂不饱这个素材时（bpp 过小），反解只会把 Q 一路抬高、
+    # 整片反复重压（用户会以为程序卡死）。这里直接单遍完成 + 提示调大上限。
+    if cap_kbps and info is not None:
+        _px = (getattr(info, "width", 0) or 0) * (getattr(info, "height", 0) or 0) \
+            * (getattr(info, "fps", 0) or 0)
+        if _px > 0 and (cap_kbps * 1000.0 / _px) < 0.012:
+            _m = ("上限 %d kbps 对 %dx%d@%.0ffps 只有 bpp %.3f（自然影像需 0.02~0.03）；"
+                  "已跳过反解、只压一遍。建议把【7 上限】选大或选「不限制」"
+                  % (int(cap_kbps), getattr(info, "width", 0) or 0,
+                     getattr(info, "height", 0) or 0, getattr(info, "fps", 0) or 0,
+                     cap_kbps * 1000.0 / _px))
+            _run_log("[%s] %s" % (time.strftime("%H:%M:%S"), _m))
+            print("   " + dim(_m), flush=True)
+            return worker(*base_args, plan)
     result = worker(*base_args, plan)
     if not cap_kbps or result.status == "failed":
         return result
@@ -3675,10 +3707,6 @@ def build_ffmpeg_command(
 
         if gop:
             add_if_supported("g", str(gop), generic=True)
-        # 每个关键帧都设成 IDR（闭合 GOP）：QSV 默认 idr_interval=0 只有首帧是 IDR，
-        # 会导致拖动定位不准、点击进度条跳回前几秒。
-        add_if_supported("forced_idr", "1", generic=True)
-
         if codec_key == "hevc" and info.is_10bit and caps.has("profile"):
             args += ["-profile:v", "main10"]
 
@@ -3750,8 +3778,6 @@ def build_ffmpeg_command(
         # 注意：放在 b_ref_mode 判断之外，避免该特性被禁用时一并失效。
         args += ["-spatial-aq", "1", "-temporal-aq", "1"]
         args += ["-rc-lookahead", "32"]
-        # 关键帧设为 IDR（闭合 GOP），与 QSV 侧一致
-        add_if_supported("forced-idr", "1", generic=True)
         _nv_q = int(getattr(plan, "quality", 0) or 0)
         if _nv_q and plan.is_capped and plan.cap_kbps:
             # 上限模式：给 QP 一个夹持区间（质量地板 / 省码率空间）
@@ -3776,15 +3802,8 @@ def build_ffmpeg_command(
             # -compression_level 同时是 hevc_qsv/av1_qsv 的私有选项（等于 TargetUsage），
             # 不限定作用域时会污染视频编码器：实测 -preset veryslow 被改成 7（veryfast），
             # 同画质码率反而更高，并打印 "Invalid compression level: valid range is 0-7"。
-            args += [
-                "-c:a", "libopus",
-                "-b:a", audio_bitrate,
-                "-vbr:a", "on",
-                "-compression_level:a", "10",
-                "-frame_duration:a", "60",
-                "-application:a", "audio",
-                "-ac", str(output_audio_channels(info)),
-            ]
+            args += ["-c:a", "libopus", "-b:a", audio_bitrate, "-vbr:a", "on",
+                 "-ac", str(output_audio_channels(info))]   # 保留 vbr(显式可见) 与 -ac(防多声道摊薄码率)
 
     args += [
         "-movflags", "+faststart",
@@ -5008,6 +5027,7 @@ def main(start_step: int = 1) -> int:
     if not detected:
         detected = detect_platforms()
     platform_key = _ask(1, start_step, choose_platform, detected)
+    PLATFORM_STATE["key"] = platform_key
     print("   " + dim("启动总耗时 %.1f 秒" % (time.monotonic() - _t_boot)), flush=True)
     platform = ENCODER_PROFILES[platform_key]
 
@@ -5146,13 +5166,16 @@ def main(start_step: int = 1) -> int:
     gop_mode = _ask(11, start_step, ask_gop)
     apply_gop_choice(gop_mode)
 
-    # ---- 12. 质量地板（默认关；开了会让码率可超上限）----
-    floor_mode = _ask(12, start_step, ask_quality_floor)
-    apply_quality_floor(floor_mode)
+    # ---- 12. 高级设置（默认不显示）----
+    adv_mode = _ask(12, start_step, ask_advanced)
+    if adv_mode == "2":
+        # ---- 13. 质量地板（默认关；开了会让码率可超上限）----
+        floor_mode = _ask(13, start_step, ask_quality_floor)
+        apply_quality_floor(floor_mode)
 
-    # ---- 13. 杜比视界（默认自动：DV 源保留 DV）----
-    dovi_mode = _ask(13, start_step, ask_dolby_vision)
-    apply_dolby_vision(dovi_mode)
+        # ---- 14. 杜比视界（默认关：输出 HLG）----
+        dovi_mode = _ask(14, start_step, ask_dolby_vision)
+        apply_dolby_vision(dovi_mode)
 
 
     # 扫描前先给个提示：后面这几步要花几秒（逐个 ffprobe + 自检试编码），
