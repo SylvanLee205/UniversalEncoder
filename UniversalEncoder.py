@@ -2827,7 +2827,7 @@ def _encode_iterative(worker, base_args, plan, duration, cap_kbps, codec_key,
                      getattr(info, "height", 0) or 0, getattr(info, "fps", 0) or 0,
                      cap_kbps * 1000.0 / _px))
             _run_log("[%s] %s" % (time.strftime("%H:%M:%S"), _m))
-            print("   " + dim(_m), flush=True)
+            _run_log(str("   " + dim(_m), flush=True))
             return worker(*base_args, plan)
     result = worker(*base_args, plan)
     if not cap_kbps or result.status == "failed":
@@ -2857,7 +2857,7 @@ def _encode_iterative(worker, base_args, plan, duration, cap_kbps, codec_key,
                     plan.quality, new_q))
         _notice = ("[超标重压] 实测 %d kbps 超过上限 %d kbps，Q %d → %d（重新压一遍）"
                    % (int(kbps), int(cap_kbps), plan.quality, new_q))
-        print("   " + dim(_notice), flush=True)
+        _run_log(str("   " + dim(_notice), flush=True))
         retry_plan = EncodePlan(mode=RC_MODE_QUALITY, quality=new_q)
         retry_plan.cap_kbps = cap_kbps
         retry_plan.predicted_kbps = plan.predicted_kbps
