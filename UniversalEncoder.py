@@ -271,7 +271,9 @@ DEFAULT_VIDEO_QUALITY = 30
 def default_quality(platform_key: str, codec_key: str) -> int:
     if platform_key == "intel":
         return 30
-    return 40 if codec_key == "av1" else 26
+    # 依据 rigaya VQ 实测（实拍类）：NVENC 数字 = QSV 数字 + 6；动画类 +4。
+    # 故 QSV Q30 ≈ NVENC cq36，而非 26（26 ≈ QSV Q20，体积会大好几倍）。
+    return 40 if codec_key == "av1" else 36
 
 # 视频码率上限候选（kbps）——不限制 / 1.0 / 1.5 / 2.0 / 2.5 / 3.0 / 自定义
 # 默认 2.5 Mbps：只对「ICQ 压完仍超上限」的素材生效（如 1290p60 / 2K / 4K），
@@ -316,10 +318,8 @@ AUDIO_BITRATES = {
     96: "96k",
     64: "64k",
     48: "48k",
-    40: "40k",
-    32: "32k",
 }
-DEFAULT_AUDIO_BITRATE = 64
+DEFAULT_AUDIO_BITRATE = 96
 
 # 源音频已经是 Opus 时是否直接复制：源码率 ≤ 目标 × 该系数就复制。
 # 理由：Opus→Opus 是有损再编码，为了省几 kbps 而损失一代音质不划算。
@@ -1363,15 +1363,15 @@ def apply_quality_floor(mode: str) -> None:
         print("   质量地板 = Q%d" % ICQ_QUALITY_FLOOR)
 
 
-GOP_CHOICES = [1.0, 2.0, 4.0]              # 菜单键 2/3/4 对应 1/2/4 秒
+GOP_CHOICES = [1.0, 2.0, 3.0]              # 菜单键 2/3/4 对应 1/2/3 秒
 
 
 def ask_gop() -> str:
     rows = [
-        ("1", "自适应（默认）", "苹果原相机/10bit/4K → 1 秒；其余 → 2 秒（按实测）"),
-        ("2", "1 秒", "最跟手；实测相机/录屏/电影只有 GOP1 才跟手"),
-        ("3", "2 秒", "比 1 秒省约 10%，其余素材手感尚可"),
-        ("4", "4 秒", "比 2 秒再省 5~8%；实测 3/4 秒手感接近，6 秒起不跟手"),
+        ("1", "自适应（默认）", "相机/10bit/4K → 1 秒；其余 → 2 秒（N 卡/QSV 实测手感一致）"),
+        ("2", "1 秒", "最跟手；实测相机/录屏/电影只有 1 秒才跟手"),
+        ("3", "2 秒", "比 1 秒省约 10~15%，多数素材手感尚可"),
+        ("4", "3 秒", "再省 3~6%；实测 3/4 秒手感接近"),
         ("5", "自定义", "输入秒数（1~30）"),
     ]
     return ask_choice("【11. 关键帧间隔 GOP】", rows, default="1", default_label="自适应")
@@ -3620,12 +3620,12 @@ def build_ffmpeg_command(
     encoder = encoder_name(platform_key, codec_key)
     caps = ENCODER_CAPABILITIES.get(encoder, EncoderCapabilities(encoder))
     audio_bitrate = AUDIO_BITRATES[audio_quality]
-    _gop_secs = None
-    if GOP_AUTO and (getattr(info, "is_10bit", False)
-                       or max(getattr(info, "width", 0) or 0,
-                              getattr(info, "height", 0) or 0) >= 3000):
-        _gop_secs = 1.0        # 原相机/10bit/4K：只有 1 秒才跟手（实测）
-    gop = calculate_gop(info.fps, _gop_secs)
+    # 自适应：高难度素材（相机/10bit/4K）用 1 秒，其余用 GOP_SECONDS(默认 2 秒)
+    # 注意：不能「不设 -g」——编码器默认 GOP 约 4 秒，手机上拖动会卡成 PPT（实测）
+    _auto_high = bool(getattr(info, "is_10bit", False)
+                         or max(getattr(info, "width", 0) or 0,
+                                getattr(info, "height", 0) or 0) >= 3000)
+    gop = calculate_gop(info.fps, 1.0 if (GOP_AUTO and _auto_high) else None)
     args = [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "warning"]
     args += decode_args
     args += [
@@ -3673,8 +3673,8 @@ def build_ffmpeg_command(
             # 超标由 _encode_iterative 反解 Q 解决。
             args += quality_option_args(platform_key, plan.quality or video_quality, disabled_features)
 
-        add_if_supported("g", str(gop), generic=True)
-
+        if gop:
+            add_if_supported("g", str(gop), generic=True)
         # 每个关键帧都设成 IDR（闭合 GOP）：QSV 默认 idr_interval=0 只有首帧是 IDR，
         # 会导致拖动定位不准、点击进度条跳回前几秒。
         add_if_supported("forced_idr", "1", generic=True)
@@ -3742,8 +3742,8 @@ def build_ffmpeg_command(
         if settings.get("spatial_aq") or settings.get("temporal_aq"):
             add_if_supported("aq-strength", str(settings["aq_strength"]), feature="aq_strength")
         add_if_supported("bf", str(settings["bf"]), feature="bf", generic=True)
-        add_if_supported("g", str(gop), generic=True)
-
+        if gop:
+            add_if_supported("g", str(gop), generic=True)
         if "b_ref" not in disabled_features and caps.has("b_ref_mode") and caps.supports_value("b_ref_mode", "middle"):
             args += ["-b_ref_mode", settings["b_ref_mode"]]
         # NVENC 质量增强（对齐已验证的手工命令；Turing+ 均支持）
