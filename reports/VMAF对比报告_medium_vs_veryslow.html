@@ -1,0 +1,284 @@
+<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>
+<title>VMAF：medium vs veryslow + 同码率对比</title>
+<style>
+:root{--bg:#0e1116;--card:#161b22;--line:#2a323d;--fg:#e6edf3;--dim:#9aa7b4;
+      --accent:#58a6ff;--good:#3fb950;--warn:#d29922;--bad:#f85149;}
+*{box-sizing:border-box}
+body{margin:0;padding:28px;background:var(--bg);color:var(--fg);
+     font-family:"Microsoft YaHei","PingFang SC",-apple-system,Segoe UI,sans-serif;
+     font-size:14px;line-height:1.6}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:17px;margin:30px 0 10px;padding-left:10px;border-left:4px solid var(--accent)}
+h3{font-size:15px;margin:18px 0 8px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+table{border-collapse:collapse;width:100%;background:var(--card);border-radius:8px;
+      overflow:hidden;margin-bottom:14px}
+th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line);
+      font-variant-numeric:tabular-nums}
+th{background:#1c232c;color:var(--dim);font-weight:600}
+th:first-child,td:first-child{text-align:left}
+tr:last-child td{border-bottom:none}
+.best{color:var(--good);font-weight:700}
+.up{color:var(--good)}.down{color:var(--bad)}.flat{color:var(--dim)}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;
+     background:#222c38;color:var(--dim);margin-left:6px}
+.note{color:var(--dim);font-size:12.5px;margin:6px 0 20px}
+.grid{display:grid;grid-template-columns:170px repeat(4,1fr);gap:8px;align-items:start}
+.grid img{width:100%;border-radius:6px;border:1px solid var(--line);display:block}
+.cap{font-size:12px;color:var(--dim);padding:6px 0;text-align:center}
+.cell{background:var(--card);border-radius:8px;padding:6px;border:1px solid var(--line)}
+.bars div{height:14px;border-radius:3px;background:linear-gradient(90deg,#58a6ff,#3fb950)}
+</style></head><body>
+<h1>medium vs veryslow 对比 · 同码率下谁更高</h1>
+<div class='sub'>编码器 Intel QSV（hevc_qsv / av1_qsv）。质量模式 = ICQ（-global_quality:v）；固定码率模式 = -b:v / -maxrate×1.2 / -bufsize×2 / -extbrc 1。GOP=8 秒，音频 libopus 64k（脚本默认），其余一致。VMAF 模型 vmaf_v0.6.1，抽样区间沿用第一批（按运动量分低/中/高各 3 段 ×1 秒，同一批帧）。</div>
+<h2>原1080_2000k<span class='tag'>22.00 fps</span><span class='tag'>9.8 分钟</span><span class='tag'>源 169.8 MB</span></h2>
+<h3>A. 同 Q 值：medium vs veryslow</h3>
+<table><tr><th>参数</th><th>体积 (MB)</th><th>实测码率 (kbps)</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC Q30 medium</td><td>55.9</td><td>761</td><td>77.22</td><td>84.19</td><td>82.90</td><td class='best'>81.44</td><td>35.43</td></tr>
+<tr><td>HEVC Q30 veryslow</td><td>55.0</td><td>749</td><td>77.21</td><td>84.13</td><td>82.89</td><td>81.41</td><td>35.21</td></tr>
+<tr><td>HEVC Q32 medium</td><td>41.9</td><td>571</td><td>76.09</td><td>82.26</td><td>80.43</td><td>79.59</td><td>34.96</td></tr>
+<tr><td>HEVC Q32 veryslow</td><td>41.2</td><td>562</td><td>76.11</td><td>82.39</td><td>80.41</td><td>79.64</td><td>34.79</td></tr>
+<tr><td>AV1 Q30 medium</td><td>50.3</td><td>686</td><td>76.58</td><td>82.76</td><td>81.00</td><td>80.11</td><td>35.32</td></tr>
+<tr><td>AV1 Q30 veryslow</td><td>50.2</td><td>684</td><td>76.67</td><td>82.82</td><td>80.87</td><td>80.12</td><td>35.27</td></tr>
+<tr><td>AV1 Q32 medium</td><td>38.3</td><td>522</td><td>75.46</td><td>80.86</td><td>78.22</td><td>78.18</td><td>34.82</td></tr>
+<tr><td>AV1 Q32 veryslow</td><td>38.1</td><td>519</td><td>75.52</td><td>81.00</td><td>78.15</td><td>78.22</td><td>34.50</td></tr>
+</table>
+<table><tr><th>对比（同 Q）</th><th>Δ VMAF（veryslow−medium）</th><th>Δ 体积</th><th>结论</th></tr>
+<tr><td>HEVC Q30</td><td class='flat'>-0.03</td><td class='flat'>-1.6%</td><td style='text-align:right'>基本持平</td></tr>
+<tr><td>HEVC Q32</td><td class='flat'>+0.04</td><td class='flat'>-1.5%</td><td style='text-align:right'>基本持平</td></tr>
+<tr><td>AV1 Q30</td><td class='flat'>+0.01</td><td class='flat'>-0.3%</td><td style='text-align:right'>基本持平</td></tr>
+<tr><td>AV1 Q32</td><td class='flat'>+0.04</td><td class='flat'>-0.5%</td><td style='text-align:right'>基本持平</td></tr>
+</table>
+<h3>B. 同码率对比（固定 -b:v，四个方案压到同一码率）</h3>
+<h4 style='margin:14px 0 6px'>目标 450 kbps</h4>
+<table><tr><th>方案</th><th>实测码率 (kbps)</th><th>偏差</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC medium</td><td>481</td><td>+7.0%</td><td>76.78</td><td>82.49</td><td>71.69</td><td>76.99</td><td>35.67</td></tr>
+<tr><td>HEVC veryslow</td><td>481</td><td>+6.9%</td><td>76.89</td><td>82.62</td><td>71.92</td><td class='best'>77.14</td><td>35.68</td></tr>
+<tr><td>AV1 medium</td><td>487</td><td>+8.3%</td><td>76.89</td><td>81.59</td><td>71.42</td><td>76.63</td><td>36.00</td></tr>
+<tr><td>AV1 veryslow</td><td>487</td><td>+8.2%</td><td>76.93</td><td>81.73</td><td>71.72</td><td>76.79</td><td>35.86</td></tr>
+</table>
+<div class='note'>同码率差值：HEVC：veryslow − medium = +0.15　|　AV1：veryslow − medium = +0.16　|　medium 下 AV1 − HEVC = -0.36　|　veryslow 下 AV1 − HEVC = -0.35</div>
+<h4 style='margin:14px 0 6px'>目标 700 kbps</h4>
+<table><tr><th>方案</th><th>实测码率 (kbps)</th><th>偏差</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC medium</td><td>717</td><td>+2.4%</td><td>78.15</td><td>84.91</td><td>77.80</td><td>80.28</td><td>35.65</td></tr>
+<tr><td>HEVC veryslow</td><td>717</td><td>+2.5%</td><td>78.17</td><td>85.00</td><td>77.91</td><td class='best'>80.36</td><td>35.51</td></tr>
+<tr><td>AV1 medium</td><td>718</td><td>+2.6%</td><td>77.92</td><td>84.63</td><td>77.10</td><td>79.88</td><td>36.52</td></tr>
+<tr><td>AV1 veryslow</td><td>719</td><td>+2.8%</td><td>77.96</td><td>84.59</td><td>77.26</td><td>79.94</td><td>35.87</td></tr>
+</table>
+<div class='note'>同码率差值：HEVC：veryslow − medium = +0.08　|　AV1：veryslow − medium = +0.05　|　medium 下 AV1 − HEVC = -0.40　|　veryslow 下 AV1 − HEVC = -0.42</div>
+<h3>抽帧对比（Q30：HEVC/AV1 × medium/veryslow）</h3>
+<div class='grid'><div class='cap'>区间</div><div class='cap'>HEVC medium</div><div class='cap'>HEVC veryslow</div><div class='cap'>AV1 medium</div><div class='cap'>AV1 veryslow</div>
+<div class='cap' style='text-align:left'>#1 变化多<br>119.0s<br>运动量 3.28</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_medium/f_001.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_veryslow/f_001.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_medium/f_001.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_veryslow/f_001.jpg'></div>
+<div class='cap' style='text-align:left'>#2 变化多<br>126.3s<br>运动量 6.47</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_medium/f_002.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_veryslow/f_002.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_medium/f_002.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_veryslow/f_002.jpg'></div>
+<div class='cap' style='text-align:left'>#3 变化中等<br>154.6s<br>运动量 1.19</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_medium/f_003.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_veryslow/f_003.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_medium/f_003.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_veryslow/f_003.jpg'></div>
+<div class='cap' style='text-align:left'>#4 变化中等<br>259.7s<br>运动量 0.94</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_medium/f_004.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_veryslow/f_004.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_medium/f_004.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_veryslow/f_004.jpg'></div>
+<div class='cap' style='text-align:left'>#5 变化多<br>306.8s<br>运动量 4.29</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_medium/f_005.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_veryslow/f_005.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_medium/f_005.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_veryslow/f_005.jpg'></div>
+<div class='cap' style='text-align:left'>#6 变化少<br>318.8s<br>运动量 0.09</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_medium/f_006.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_veryslow/f_006.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_medium/f_006.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_veryslow/f_006.jpg'></div>
+<div class='cap' style='text-align:left'>#7 变化少<br>416.7s<br>运动量 0.38</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_medium/f_007.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_veryslow/f_007.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_medium/f_007.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_veryslow/f_007.jpg'></div>
+<div class='cap' style='text-align:left'>#8 变化中等<br>475.6s<br>运动量 1.06</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_medium/f_008.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_veryslow/f_008.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_medium/f_008.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_veryslow/f_008.jpg'></div>
+<div class='cap' style='text-align:left'>#9 变化少<br>499.6s<br>运动量 0.22</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_medium/f_009.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_HEVC_Q30_veryslow/f_009.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_medium/f_009.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1080_2000k_AV1_Q30_veryslow/f_009.jpg'></div>
+</div>
+<h2>原1290_15m<span class='tag'>60.00 fps</span><span class='tag'>1.7 分钟</span><span class='tag'>源 200.0 MB</span></h2>
+<h3>A. 同 Q 值：medium vs veryslow</h3>
+<table><tr><th>参数</th><th>体积 (MB)</th><th>实测码率 (kbps)</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC Q30 medium</td><td>83.7</td><td>6414</td><td>91.11</td><td>90.99</td><td>92.53</td><td class='best'>91.54</td><td>86.47</td></tr>
+<tr><td>HEVC Q30 veryslow</td><td>82.0</td><td>6285</td><td>90.99</td><td>90.93</td><td>92.55</td><td>91.49</td><td>84.64</td></tr>
+<tr><td>HEVC Q32 medium</td><td>64.0</td><td>4907</td><td>87.99</td><td>88.08</td><td>89.21</td><td>88.43</td><td>80.68</td></tr>
+<tr><td>HEVC Q32 veryslow</td><td>62.7</td><td>4807</td><td>87.82</td><td>88.03</td><td>89.20</td><td>88.35</td><td>80.26</td></tr>
+<tr><td>AV1 Q30 medium</td><td>71.7</td><td>5499</td><td>88.19</td><td>87.94</td><td>88.35</td><td>88.16</td><td>81.58</td></tr>
+<tr><td>AV1 Q30 veryslow</td><td>70.9</td><td>5434</td><td>88.36</td><td>88.07</td><td>88.53</td><td>88.32</td><td>81.37</td></tr>
+<tr><td>AV1 Q32 medium</td><td>55.2</td><td>4234</td><td>84.99</td><td>84.50</td><td>84.84</td><td>84.77</td><td>76.64</td></tr>
+<tr><td>AV1 Q32 veryslow</td><td>54.6</td><td>4184</td><td>85.21</td><td>84.55</td><td>84.72</td><td>84.83</td><td>76.20</td></tr>
+</table>
+<table><tr><th>对比（同 Q）</th><th>Δ VMAF（veryslow−medium）</th><th>Δ 体积</th><th>结论</th></tr>
+<tr><td>HEVC Q30</td><td class='flat'>-0.05</td><td class='flat'>-2.0%</td><td style='text-align:right'>基本持平</td></tr>
+<tr><td>HEVC Q32</td><td class='flat'>-0.08</td><td class='flat'>-2.0%</td><td style='text-align:right'>基本持平</td></tr>
+<tr><td>AV1 Q30</td><td class='flat'>+0.16</td><td class='flat'>-1.2%</td><td style='text-align:right'>基本持平</td></tr>
+<tr><td>AV1 Q32</td><td class='flat'>+0.05</td><td class='flat'>-1.2%</td><td style='text-align:right'>基本持平</td></tr>
+</table>
+<h3>B. 同码率对比（固定 -b:v，四个方案压到同一码率）</h3>
+<h4 style='margin:14px 0 6px'>目标 4150 kbps</h4>
+<table><tr><th>方案</th><th>实测码率 (kbps)</th><th>偏差</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC medium</td><td>4207</td><td>+1.4%</td><td>85.94</td><td>84.29</td><td>87.66</td><td>85.96</td><td>73.59</td></tr>
+<tr><td>HEVC veryslow</td><td>4208</td><td>+1.4%</td><td>86.24</td><td>84.85</td><td>87.94</td><td class='best'>86.34</td><td>73.90</td></tr>
+<tr><td>AV1 medium</td><td>4362</td><td>+5.1%</td><td>85.44</td><td>83.09</td><td>86.90</td><td>85.14</td><td>75.84</td></tr>
+<tr><td>AV1 veryslow</td><td>4382</td><td>+5.6%</td><td>85.94</td><td>83.72</td><td>87.40</td><td>85.69</td><td>76.71</td></tr>
+</table>
+<div class='note'>同码率差值：HEVC：veryslow − medium = +0.38　|　AV1：veryslow − medium = +0.54　|　medium 下 AV1 − HEVC = -0.82　|　veryslow 下 AV1 − HEVC = -0.66</div>
+<h4 style='margin:14px 0 6px'>目标 6350 kbps</h4>
+<table><tr><th>方案</th><th>实测码率 (kbps)</th><th>偏差</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC medium</td><td>6410</td><td>+0.9%</td><td>91.16</td><td>90.15</td><td>92.30</td><td>91.20</td><td>82.12</td></tr>
+<tr><td>HEVC veryslow</td><td>6409</td><td>+0.9%</td><td>91.28</td><td>90.37</td><td>92.48</td><td class='best'>91.38</td><td>82.40</td></tr>
+<tr><td>AV1 medium</td><td>6908</td><td>+8.8%</td><td>90.82</td><td>89.52</td><td>92.05</td><td>90.80</td><td>84.54</td></tr>
+<tr><td>AV1 veryslow</td><td>6951</td><td>+9.5%</td><td>91.11</td><td>90.02</td><td>92.45</td><td>91.19</td><td>85.15</td></tr>
+</table>
+<div class='note'>同码率差值：HEVC：veryslow − medium = +0.18　|　AV1：veryslow − medium = +0.40　|　medium 下 AV1 − HEVC = -0.41　|　veryslow 下 AV1 − HEVC = -0.19</div>
+<h3>抽帧对比（Q30：HEVC/AV1 × medium/veryslow）</h3>
+<div class='grid'><div class='cap'>区间</div><div class='cap'>HEVC medium</div><div class='cap'>HEVC veryslow</div><div class='cap'>AV1 medium</div><div class='cap'>AV1 veryslow</div>
+<div class='cap' style='text-align:left'>#1 变化中等<br>8.5s<br>运动量 0.12</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_medium/f_001.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_veryslow/f_001.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_medium/f_001.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_veryslow/f_001.jpg'></div>
+<div class='cap' style='text-align:left'>#2 变化少<br>23.7s<br>运动量 0.03</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_medium/f_002.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_veryslow/f_002.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_medium/f_002.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_veryslow/f_002.jpg'></div>
+<div class='cap' style='text-align:left'>#3 变化少<br>36.7s<br>运动量 0.05</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_medium/f_003.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_veryslow/f_003.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_medium/f_003.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_veryslow/f_003.jpg'></div>
+<div class='cap' style='text-align:left'>#4 变化多<br>49.3s<br>运动量 10.16</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_medium/f_004.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_veryslow/f_004.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_medium/f_004.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_veryslow/f_004.jpg'></div>
+<div class='cap' style='text-align:left'>#5 变化中等<br>52.9s<br>运动量 0.20</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_medium/f_005.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_veryslow/f_005.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_medium/f_005.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_veryslow/f_005.jpg'></div>
+<div class='cap' style='text-align:left'>#6 变化少<br>60.4s<br>运动量 0.04</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_medium/f_006.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_veryslow/f_006.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_medium/f_006.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_veryslow/f_006.jpg'></div>
+<div class='cap' style='text-align:left'>#7 变化多<br>70.1s<br>运动量 11.63</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_medium/f_007.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_veryslow/f_007.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_medium/f_007.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_veryslow/f_007.jpg'></div>
+<div class='cap' style='text-align:left'>#8 变化中等<br>97.2s<br>运动量 0.10</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_medium/f_008.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_veryslow/f_008.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_medium/f_008.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_veryslow/f_008.jpg'></div>
+<div class='cap' style='text-align:left'>#9 变化多<br>101.2s<br>运动量 14.95</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_medium/f_009.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_HEVC_Q30_veryslow/f_009.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_medium/f_009.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原1290_15m_AV1_Q30_veryslow/f_009.jpg'></div>
+</div>
+<h2>原720_1000kbps<span class='tag'>21.92 fps</span><span class='tag'>10.4 分钟</span><span class='tag'>源 77.0 MB</span></h2>
+<h3>A. 同 Q 值：medium vs veryslow</h3>
+<table><tr><th>参数</th><th>体积 (MB)</th><th>实测码率 (kbps)</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC Q30 medium</td><td>54.5</td><td>695</td><td>89.14</td><td>90.13</td><td>89.92</td><td class='best'>89.73</td><td>83.11</td></tr>
+<tr><td>HEVC Q30 veryslow</td><td>53.9</td><td>688</td><td>89.22</td><td>90.08</td><td>89.55</td><td>89.62</td><td>80.71</td></tr>
+<tr><td>HEVC Q32 medium</td><td>41.1</td><td>524</td><td>86.20</td><td>86.82</td><td>86.10</td><td>86.37</td><td>77.62</td></tr>
+<tr><td>HEVC Q32 veryslow</td><td>40.7</td><td>520</td><td>86.32</td><td>86.85</td><td>85.99</td><td>86.39</td><td>77.77</td></tr>
+<tr><td>AV1 Q30 medium</td><td>49.0</td><td>626</td><td>86.23</td><td>87.16</td><td>85.94</td><td>86.44</td><td>77.59</td></tr>
+<tr><td>AV1 Q30 veryslow</td><td>49.1</td><td>626</td><td>86.35</td><td>87.40</td><td>86.16</td><td>86.64</td><td>77.23</td></tr>
+<tr><td>AV1 Q32 medium</td><td>37.2</td><td>475</td><td>83.18</td><td>83.58</td><td>81.08</td><td>82.61</td><td>70.22</td></tr>
+<tr><td>AV1 Q32 veryslow</td><td>37.1</td><td>474</td><td>83.30</td><td>83.68</td><td>81.07</td><td>82.68</td><td>70.95</td></tr>
+</table>
+<table><tr><th>对比（同 Q）</th><th>Δ VMAF（veryslow−medium）</th><th>Δ 体积</th><th>结论</th></tr>
+<tr><td>HEVC Q30</td><td class='flat'>-0.11</td><td class='flat'>-1.0%</td><td style='text-align:right'>基本持平</td></tr>
+<tr><td>HEVC Q32</td><td class='flat'>+0.01</td><td class='flat'>-0.8%</td><td style='text-align:right'>基本持平</td></tr>
+<tr><td>AV1 Q30</td><td class='flat'>+0.19</td><td class='flat'>+0.0%</td><td style='text-align:right'>基本持平</td></tr>
+<tr><td>AV1 Q32</td><td class='flat'>+0.07</td><td class='flat'>-0.3%</td><td style='text-align:right'>基本持平</td></tr>
+</table>
+<h3>B. 同码率对比（固定 -b:v，四个方案压到同一码率）</h3>
+<h4 style='margin:14px 0 6px'>目标 400 kbps</h4>
+<table><tr><th>方案</th><th>实测码率 (kbps)</th><th>偏差</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC medium</td><td>412</td><td>+3.0%</td><td>83.87</td><td>83.07</td><td>74.73</td><td>80.56</td><td>62.88</td></tr>
+<tr><td>HEVC veryslow</td><td>412</td><td>+3.0%</td><td>83.84</td><td>83.61</td><td>75.53</td><td class='best'>80.99</td><td>65.97</td></tr>
+<tr><td>AV1 medium</td><td>423</td><td>+5.8%</td><td>84.67</td><td>80.47</td><td>74.17</td><td>79.77</td><td>64.72</td></tr>
+<tr><td>AV1 veryslow</td><td>423</td><td>+5.8%</td><td>85.03</td><td>80.10</td><td>75.36</td><td>80.16</td><td>64.37</td></tr>
+</table>
+<div class='note'>同码率差值：HEVC：veryslow − medium = +0.44　|　AV1：veryslow − medium = +0.40　|　medium 下 AV1 − HEVC = -0.79　|　veryslow 下 AV1 − HEVC = -0.83</div>
+<h4 style='margin:14px 0 6px'>目标 650 kbps</h4>
+<table><tr><th>方案</th><th>实测码率 (kbps)</th><th>偏差</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC medium</td><td>633</td><td>-2.7%</td><td>88.65</td><td>88.71</td><td>84.08</td><td>87.15</td><td>75.69</td></tr>
+<tr><td>HEVC veryslow</td><td>633</td><td>-2.7%</td><td>88.80</td><td>88.86</td><td>84.33</td><td class='best'>87.33</td><td>75.42</td></tr>
+<tr><td>AV1 medium</td><td>651</td><td>+0.2%</td><td>88.42</td><td>88.18</td><td>84.23</td><td>86.95</td><td>78.37</td></tr>
+<tr><td>AV1 veryslow</td><td>653</td><td>+0.4%</td><td>88.72</td><td>88.28</td><td>84.32</td><td>87.11</td><td>77.56</td></tr>
+</table>
+<div class='note'>同码率差值：HEVC：veryslow − medium = +0.19　|　AV1：veryslow − medium = +0.16　|　medium 下 AV1 − HEVC = -0.20　|　veryslow 下 AV1 − HEVC = -0.22</div>
+<h3>抽帧对比（Q30：HEVC/AV1 × medium/veryslow）</h3>
+<div class='grid'><div class='cap'>区间</div><div class='cap'>HEVC medium</div><div class='cap'>HEVC veryslow</div><div class='cap'>AV1 medium</div><div class='cap'>AV1 veryslow</div>
+<div class='cap' style='text-align:left'>#1 变化多<br>24.8s<br>运动量 7.22</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_medium/f_001.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_veryslow/f_001.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_medium/f_001.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_veryslow/f_001.jpg'></div>
+<div class='cap' style='text-align:left'>#2 变化少<br>140.4s<br>运动量 0.54</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_medium/f_002.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_veryslow/f_002.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_medium/f_002.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_veryslow/f_002.jpg'></div>
+<div class='cap' style='text-align:left'>#3 变化多<br>190.1s<br>运动量 5.66</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_medium/f_003.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_veryslow/f_003.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_medium/f_003.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_veryslow/f_003.jpg'></div>
+<div class='cap' style='text-align:left'>#4 变化中等<br>221.4s<br>运动量 2.23</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_medium/f_004.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_veryslow/f_004.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_medium/f_004.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_veryslow/f_004.jpg'></div>
+<div class='cap' style='text-align:left'>#5 变化中等<br>260.9s<br>运动量 2.00</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_medium/f_005.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_veryslow/f_005.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_medium/f_005.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_veryslow/f_005.jpg'></div>
+<div class='cap' style='text-align:left'>#6 变化少<br>285.1s<br>运动量 0.36</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_medium/f_006.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_veryslow/f_006.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_medium/f_006.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_veryslow/f_006.jpg'></div>
+<div class='cap' style='text-align:left'>#7 变化多<br>416.5s<br>运动量 10.12</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_medium/f_007.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_veryslow/f_007.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_medium/f_007.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_veryslow/f_007.jpg'></div>
+<div class='cap' style='text-align:left'>#8 变化少<br>448.2s<br>运动量 0.74</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_medium/f_008.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_veryslow/f_008.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_medium/f_008.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_veryslow/f_008.jpg'></div>
+<div class='cap' style='text-align:left'>#9 变化中等<br>462.2s<br>运动量 1.79</div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_medium/f_009.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_HEVC_Q30_veryslow/f_009.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_medium/f_009.jpg'></div>
+<div class='cell'><img loading='lazy' src='_compare_frames/_thumbs/原720_1000kbps_AV1_Q30_veryslow/f_009.jpg'></div>
+</div>
+<div class='note' style='margin-top:26px'>说明：固定码率模式实测码率会与目标有 ±5% 左右的偏差（QSV VBR 特性），表中已列出实测值与偏差；结论以实测码率接近的行对比为准。每个区间统计时剔除开头 2 帧（拼接取样导致的时域特征污染）。</div>
+</body></html>

@@ -1,0 +1,33 @@
+# 运行产物与缓存
+__pycache__/
+*.pyc
+_env_cache.json
+_qsv_calibration.json
+_nvenc_calibration.json
+_workers.json
+_icq_q_cache.json
+_platform_cache.json
+_encode_run.log
+_failed_files.txt
+_failed_paths.txt
+output/
+_dv_*/
+
+# 素材与个人文件（不要上传）
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.mkv
+*.avi
+*.flv
+*.ts
+*.webm
+dovi_tool.exe
+ffmpeg.exe
+ffprobe.exe
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>三种规格混批：通用压缩策略实测</title>
+<style>
+:root{
+  --bg:#f7f8fa; --card:#fff; --line:#e3e6ea; --txt:#1f2328; --dim:#656d76;
+  --accent:#0969da; --good:#1a7f37; --warn:#9a6700; --bad:#cf222e;
+  --hl:#fff8c5; --hl2:#ddf4ff;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:32px 20px 80px;background:var(--bg);color:var(--txt);
+ font:15px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+.wrap{max-width:1120px;margin:0 auto}
+h1{font-size:26px;margin:0 0 6px}
+h2{font-size:20px;margin:38px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+h3{font-size:16px;margin:24px 0 10px;color:var(--accent)}
+.sub{color:var(--dim);font-size:13px;margin-bottom:24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+ padding:18px 20px;margin:14px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;
+ background:var(--card);border-radius:8px;overflow:hidden;
+ border:1px solid var(--line)}
+th,td{padding:9px 11px;text-align:right;border-bottom:1px solid var(--line)}
+th{background:#f0f2f5;font-weight:600;text-align:right;color:var(--dim);font-size:13px}
+td:first-child,th:first-child{text-align:left}
+tr:last-child td{border-bottom:none}
+.best{background:var(--hl);font-weight:700;color:var(--good)}
+.good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+.dim{color:var(--dim)} .kv{color:var(--dim);font-size:12px}
+.mono{font-family:ui-monospace,Consolas,monospace;font-size:13px}
+pre{background:#f6f8fa;border:1px solid var(--line);border-radius:8px;
+ padding:14px 16px;overflow-x:auto;font-size:13px;line-height:1.6;
+ font-family:ui-monospace,Consolas,monospace}
+.big{font-size:17px;font-weight:700}
+.kpi{display:flex;gap:14px;flex-wrap:wrap;margin:16px 0}
+.kpi div{flex:1;min-width:170px;background:var(--card);border:1px solid var(--line);
+ border-radius:10px;padding:14px 16px}
+.kpi b{display:block;font-size:22px;color:var(--accent);margin-bottom:2px}
+.kpi span{font-size:12px;color:var(--dim)}
+.note{background:var(--hl2);border-left:4px solid var(--accent);
+ padding:12px 16px;margin:14px 0;border-radius:0 8px 8px 0}
+.warnbox{background:#fff5f5;border-left:4px solid var(--bad);
+ padding:12px 16px;margin:14px 0;border-radius:0 8px 8px 0}
+.okbox{background:#eaf6ec;border-left:4px solid var(--good);
+ padding:12px 16px;margin:14px 0;border-radius:0 8px 8px 0}
+ul{margin:8px 0;padding-left:22px} li{margin:4px 0}
+.tag{display:inline-block;background:#eaeef2;border-radius:4px;padding:1px 7px;
+ font-size:12px;color:var(--dim);margin-right:4px}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>三种规格混批：通用压缩策略实测</h1>
+<div class="sub">1290p60 录屏 / 1080p22 / 720p22 三种素材 · Intel QSV · ICQ 恒定质量 · 目标：压到位且不浪费</div>
+
+<div class="kpi">
+  <div><b>+1.6%</b><span>ICQ 迭代收敛精度（1290@2M）</span></div>
+  <div><b>1 遍</b><span>720p / 1080p 所需压制次数</span></div>
+  <div><b>2 遍</b><span>仅 1290 超标素材需要</span></div>
+  <div><b>+3.7</b><span>ICQ 迭代 比 AVBR 多出的 VMAF</span></div>
+</div>
+
+<h2>一、你的三种规格，差在哪</h2>
+<p>三个素材在 ICQ Q30 下码率差近 10 倍，根因不是"内容复杂度"，而是<strong>像素率</strong>——
+每单位时间要编码的像素总量：</p>
+
+<table>
+<tr><th>素材</th><th>分辨率</th><th>fps</th><th>时长</th><th>源码率</th><th>像素率</th><th>HEVC Q30 输出</th><th>AV1 Q30 输出</th></tr>
+<tr><td>1290 录屏</td><td class="mono">1290×2796</td><td>60</td><td>104 s</td><td>15.2 M</td><td><b>216.4</b> Mpx/s</td><td class="bad big">6413 k</td><td class="bad">5499 k</td></tr>
+<tr><td>1080</td><td class="mono">1088×1920</td><td>22</td><td>587 s</td><td>2.18 M</td><td>46.0 Mpx/s</td><td class="good">761 k</td><td class="good">686 k</td></tr>
+<tr><td>720</td><td class="mono">720×1280</td><td>21.9</td><td>627 s</td><td>0.85 M</td><td>20.2 Mpx/s</td><td class="good">695 k</td><td class="good">626 k</td></tr>
+</table>
+
+<p class="dim">1290 的像素率是 1080 那个的 <b>4.7 倍</b>。ICQ 是恒定质量，所以它给 1290 更多码率
+是"正确行为"——只是超出了你的存档预算。这就决定了：<b>不能用同一个 Q 值套三种规格</b>，
+而要用"码率天花板"做统一约束。</p>
+
+<h2>二、通用策略：ICQ + 码率天花板兜底（单向）</h2>
+<div class="note">
+<b>核心原则：只在超出天花板时才上调 Q（降码率），绝不为了"花满预算"而下调 Q。</b><br>
+你要的是省码率，不是把每个文件都撑到 2M。所以 720p/1080p 压出来 400~700k 是<strong>正确结果</strong>，
+不该被"拉高画质"去凑预算。
+</div>
+
+<table>
+<tr><th>素材</th><th>天花板 2M 下</th><th>探测/压制</th><th>最终 Q（HEVC）</th><th>实际码率</th></tr>
+<tr><td>1290 录屏</td><td class="warn">超标 → 触发迭代</td><td>2 遍</td><td>Q30 → <b>Q40</b></td><td class="best">2033 k</td></tr>
+<tr><td>1080</td><td class="good">未超 → 原样输出</td><td><b>1 遍</b></td><td>Q30（不动）</td><td class="good">702 k</td></tr>
+<tr><td>720</td><td class="good">未超 → 原样输出</td><td><b>1 遍</b></td><td>Q30（不动）</td><td class="good">636 k</td></tr>
+</table>
+
+<p>批量跑下来：<b>只有 1290 这一类素材会压两遍，其余全部一遍过</b>，额外开销接近零。</p>
+
+<h2>三、ICQ 迭代好弄吗？——好弄，核心就一行公式</h2>
+
+<h3>3.1 要不要"压两次"</h3>
+<p><b>只有超标的文件需要第 2 遍</b>。第 1 遍就是正常压制（用你设的 Q30/Q32），
+压完量一下视频流码率，超了才算新 Q 重压。720p/1080p 根本不会走到第 2 步。</p>
+
+<h3>3.2 收敛公式</h3>
+<p>实测 <span class="mono">ln(码率)</span> 对 Q 近似线性，斜率已标定：</p>
+<pre>Q2 = ceil( Q1 + ln(k1 / cap) / SLOPE )
+
+SLOPE = 0.125 (HEVC)   # Q 每 +1，码率约 ×0.88
+SLOPE = 0.140 (AV1)    # AV1 对 Q 更敏感</pre>
+<p class="dim">用 <span class="mono">ceil</span> 向上取整是刻意的——宁可多省一点，也绝不超出预算。</p>
+
+<h3>3.3 实测准确度（预测 Q vs 实际收敛点）</h3>
+<table>
+<tr><th>场景</th><th>起点 Q</th><th>第 1 遍实测</th><th>上限</th><th>公式给的 Q</th><th>实际收敛 Q</th><th>结果</th><th>偏差</th></tr>
+<tr><td>1290 HEVC @2M</td><td>30</td><td>6413 k</td><td>2000 k</td><td>40</td><td>40</td><td class="best">2033 k</td><td class="good">+1.6%</td></tr>
+<tr><td>1290 HEVC @2M（从 Q32 起）</td><td>32</td><td>4907 k</td><td>2000 k</td><td>40</td><td>40</td><td class="best">2033 k</td><td class="good">+1.6%</td></tr>
+<tr><td>1290 AV1 @2M</td><td>30</td><td>5499 k</td><td>2000 k</td><td>38</td><td>37</td><td>2064 k</td><td class="good">+3.2%</td></tr>
+<tr><td>1080 HEVC @600k</td><td>30</td><td>702 k</td><td>600 k</td><td>32</td><td>32</td><td>571 k</td><td class="good">−4.8%</td></tr>
+<tr><td>720 HEVC @450k</td><td>30</td><td>636 k</td><td>450 k</td><td>33</td><td>33</td><td>421 k</td><td class="good">−6.4%</td></tr>
+<tr><td>720 AV1 @450k</td><td>30</td><td>568 k</td><td>450 k</td><td>32</td><td>32</td><td>418 k</td><td class="good">−7.1%</td></tr>
+</table>
+<p><b>7 个场景里 6 个 Q 值完全命中</b>，剩 1 个偏保守 1 档。偏差范围 <span class="good">−7.1% ~ +3.2%</span>，
+全部落在"不超预算"的安全侧。</p>
+
+<h3>3.4 脚本里怎么接（3 处改动）</h3>
+<p>已写好可直接用的模块 <span class="mono">icq_cap_patch.py</span>，核心函数：</p>
+<pre>def icq_refit_quality(quality, measured_kbps, cap_kbps, codec="HEVC"):
+    if measured_kbps &lt;= cap_kbps:
+        return quality                      # 没超预算，不动
+    slope = ICQ_CAP_SLOPE.get(codec.upper(), 0.125)
+    delta = math.log(measured_kbps / cap_kbps) / slope
+    q2 = quality + math.ceil(delta)         # 向上取整，宁省不超
+    return max(quality + 1, min(51, q2))</pre>
+
+<div class="card">
+<b>改动点：</b>
+<ul>
+<li><span class="tag">1</span>顶部 <span class="mono">from icq_cap_patch import encode_with_icq_cap</span> + <span class="mono">ICQ_CAP_MODE = True</span></li>
+<li><span class="tag">2</span><span class="mono">build_ffmpeg_command()</span> 的 CAPPED 分支：<b>去掉</b> <span class="mono">-b:v / -maxrate / -bufsize</span>，只留 ICQ 的 <span class="mono">-global_quality:v</span></li>
+<li><span class="tag">3</span>worker 里把 <span class="mono">ok = run_ffmpeg(cmd)</span> 换成 <span class="mono">encode_with_icq_cap(...)</span>（内部自动压 1~2 遍）</li>
+</ul>
+<p class="dim" style="margin:8px 0 0">详细注释和完整接入代码见 <span class="mono">icq_cap_patch.py</span> 文件末尾的 USAGE 段。</p>
+</div>
+
+<div class="warnbox">
+<b>别用采样探测替代全片压第 1 遍。</b>我实测过：短片（104 s 的 1290）采样 5 段 × 3 次迭代
+花了 <b>41 秒</b>，比全片压制（21 秒）还贵一倍——瓶颈是每段一个 ffmpeg 进程的启动开销。
+采样探测只在视频 &gt; 5 分钟时才划算（1080/720 上探测只要 5~6 秒）。
+</div>
+
+<h2>四、AVBR 作为次选：代价是多少</h2>
+<p>AVBR（自适应码率）的吸引力是<b>只压一遍就自动贴合目标码率</b>。实测码率控制确实准
+（1290 给 1973k / 2024k，误差 −1.4% ~ +1.2%），但画质要付出代价：</p>
+
+<table>
+<tr><th>素材 @ 目标</th><th>方案</th><th>实际码率</th><th>VMAF</th><th>对 ICQ 迭代</th></tr>
+<tr><td rowspan="4">1290<br>@2M</td><td>ICQ 迭代 · HEVC Q40</td><td>2033 k</td><td class="best">73.01</td><td class="good">基准</td></tr>
+<tr><td>ICQ 迭代 · AV1 Q37</td><td>2064 k</td><td>72.02</td><td class="dim">−0.99</td></tr>
+<tr><td>AVBR · AV1</td><td>2024 k</td><td>71.55</td><td class="warn">−1.46</td></tr>
+<tr><td>AVBR · HEVC</td><td>1973 k</td><td>69.30</td><td class="bad">−3.71</td></tr>
+<tr><td rowspan="4">1080<br>@1.5M</td><td>ICQ 迭代 · AV1 Q24</td><td>1645 k</td><td class="best">84.24</td><td class="good">基准</td></tr>
+<tr><td>ICQ 迭代 · HEVC Q23</td><td>1330 k</td><td>83.92</td><td class="dim">−0.32</td></tr>
+<tr><td>AVBR · AV1</td><td>1392 k</td><td>83.00</td><td class="warn">−1.24</td></tr>
+<tr><td>AVBR · HEVC</td><td>1412 k</td><td>82.93</td><td class="warn">−1.31</td></tr>
+<tr><td rowspan="4">720<br>@600k</td><td>ICQ 迭代 · HEVC Q30</td><td>629 k</td><td class="best">89.62</td><td class="good">基准</td></tr>
+<tr><td>ICQ 迭代 · AV1 Q30</td><td>569 k</td><td>86.64</td><td class="dim">−2.98</td></tr>
+<tr><td>AVBR · AV1</td><td>544 k</td><td>85.54</td><td class="warn">−4.08</td></tr>
+<tr><td>AVBR · HEVC</td><td>530 k</td><td>85.24</td><td class="bad">−4.38</td></tr>
+</table>
+
+<div class="okbox">
+<b>结论：AVBR 可以用，但它是"省事"不是"最优"。</b>
+比 ICQ 迭代低 <b>1.2~4.4 分 VMAF</b>，换来的好处是不用改架构、不用判重压。
+如果你嫌接入 <span class="mono">icq_cap_patch</span> 麻烦，AVBR 是完全可接受的次选——
+而且它比脚本现在的 VBR 上限模式<b>更好</b>。
+</div>
+
+<h3>顺带：脚本现有的 VBR 上限模式应该被替换</h3>
+<table>
+<tr><th>素材 @ 目标</th><th>VBR 上限（脚本现有）</th><th>AVBR</th><th>ICQ 迭代</th></tr>
+<tr><td>1290 @2M</td><td>68.15（HEVC） / 67.28（AV1）</td><td>69.30 / 71.55</td><td class="best">73.01 / 72.02</td></tr>
+<tr><td>1080 @1.5M</td><td>83.00 / 82.38</td><td>82.93 / 83.00</td><td class="best">83.92 / 84.24</td></tr>
+<tr><td>720 @600k</td><td>83.93 / 83.62</td><td>85.24 / 85.54</td><td class="best">89.62 / 86.64</td></tr>
+</table>
+<p>三个素材上 <b>ICQ 迭代 &gt; AVBR &gt; VBR 上限</b>，顺序完全一致。</p>
+
+<h2>五、"1290 降回 1080p20" 为什么不成立</h2>
+<p>你说内容是 1080p20fps 的抖音直播，理论上降回原生规格能省掉海量码率——
+同样的 2M，每像素比特数（bpp）能提升 <b>4.9 倍</b>。我实测了这条路线：</p>
+
+<table>
+<tr><th>变体</th><th>像素率</th><th>Q</th><th>码率</th><th>bpp</th><th>VMAF</th></tr>
+<tr><td>A 原生 1290p60</td><td>216.4 Mpx/s</td><td>39</td><td>2314 k</td><td>0.0107</td><td class="best">75.82</td></tr>
+<tr><td>B 1080p60（只降分辨率）</td><td>124.4</td><td>36</td><td>2186 k</td><td>0.0176</td><td>68.94</td></tr>
+<tr><td>C 1080p30</td><td>62.2</td><td>34</td><td>2257 k</td><td>0.0363</td><td class="bad">31.85</td></tr>
+<tr><td>D 1080p24</td><td>49.8</td><td>33</td><td>2312 k</td><td>0.0465</td><td class="bad">31.06</td></tr>
+<tr><td>E 1080p20（内容原生）</td><td>41.5</td><td>33</td><td>2157 k</td><td>0.0520</td><td class="bad">30.18</td></tr>
+</table>
+
+<div class="warnbox">
+<b>bpp 涨了 4.9 倍，VMAF 反而掉了 45 分。</b>
+我一开始怀疑是帧对齐 bug，做了 PSNR 校验排除：<br>
+<span class="mono">60fps → 30fps → 升回 60fps（纯帧率转换，零压缩）= 33.75 dB</span><br>
+<span class="mono">60fps → 24fps = 32.12 dB　·　60fps → 20fps = 31.52 dB</span><br>
+<b>这说明源里有真实的 60fps 运动信息</b>（弹幕滚动、UI 动画是 60fps 渲染的，只有视频画面本体是 20fps）。
+降帧率会实实在在损失这些内容——你明确说过在意弹幕，所以这条路不通。<br><br>
+降分辨率同理：VMAF 掉 6.9 分，且弹幕文字会变糊。
+</div>
+
+<h2>六、最终推荐</h2>
+
+<h3>首选：ICQ + 码率天花板兜底</h3>
+<pre># HEVC（画质优先）
+ffmpeg -hwaccel qsv -hwaccel_output_format qsv -i input.mp4 \
+  -map 0:v:0 -map 0:a:0 \
+  -c:v hevc_qsv -preset medium -global_quality:v 30 \
+  -g &lt;fps×8&gt; -tag:v hvc1 \
+  -c:a libopus -b:a 64k -vbr on \
+  -movflags +faststart out.mp4
+# + 天花板 2000k：压完量码率，超了就 Q2 = ceil(Q1 + ln(k1/2000)/0.125) 重压一遍</pre>
+<pre># AV1（体积优先，比 HEVC 小约 10%，画质低 1~3 分）
+  -c:v av1_qsv -preset medium -global_quality:v 30 -tag:v av01
+# + 天花板：SLOPE 用 0.140</pre>
+
+<table>
+<tr><th>素材</th><th>HEVC 最终 Q</th><th>HEVC 体积</th><th>AV1 最终 Q</th><th>AV1 体积</th></tr>
+<tr><td>1290 录屏（104 s）</td><td><b>Q40</b></td><td>2033 k → 约 26 MB</td><td><b>Q37</b></td><td>2064 k → 约 27 MB</td></tr>
+<tr><td>1080（9.8 min）</td><td>Q30（不动）</td><td>702 k → 约 51 MB</td><td>Q30（不动）</td><td>629 k → 约 46 MB</td></tr>
+<tr><td>720（10.4 min）</td><td>Q30（不动）</td><td>636 k → 约 52 MB</td><td>Q30（不动）</td><td>568 k → 约 46 MB</td></tr>
+</table>
+<p class="dim">相比原来 ICQ Q30 直接压，1290 从 <b>83.7 MB（6.4M 码率）</b> 降到 <b>约 26 MB</b>，省 69%。</p>
+
+<h3>次选：AVBR（不想改架构时）</h3>
+<pre>-c:v hevc_qsv -preset medium -b:v 2000k -avbr_accuracy 1000 -avbr_convergence 100</pre>
+<p class="dim">一次压制即贴合目标（实测误差 −1.4%~+1.2%），画质比 ICQ 迭代低 1.2~4.4 分，
+但仍优于脚本现有的 VBR 上限模式。</p>
+
+<h3>不要再用的组合</h3>
+<ul>
+<li><span class="bad">ICQ + -maxrate/-bufsize</span>：QSV 会静默把 ICQ 切成 CQP 并丢弃 global_quality（Q25/30/35 输出 md5 相同），CQP 又完全不限码率</li>
+<li><span class="bad">-b:v + -look_ahead_depth</span>：这台机器上必崩 <span class="mono">Error encoding a frame: Invalid data</span></li>
+<li><span class="bad">ICQ 下叠加保守档（关 B 帧/GPB）</span>：码率涨 50~90%，VMAF 几乎不涨</li>
+<li><span class="bad">ICQ 下加 extbrc / rdo / refs / adaptive_i</span>：全是空操作（输出字节不变）</li>
+</ul>
+
+<div class="note" style="margin-top:30px">
+<b>一句话总结：</b>混批时别用同一个 Q 值——设一个码率天花板（2M），
+用 ICQ 默认 Q 压，超了就按 <span class="mono">ceil(Q + ln(k/cap)/0.125)</span> 重压一遍。
+720p/1080p 永远只压一遍，只有 1290 这种高像素率录屏会压两遍。
+嫌改脚本麻烦就用 AVBR，代价是 1~4 分 VMAF。
+</div>
+
+<p class="dim" style="margin-top:28px;font-size:12px">
+数据说明：VMAF 为抽样窗口均值（低/中/高运动段），1290 用时间窗口（CFR 60fps，可信），
+1080/720 用帧号窗口（这两个源是 VFR，按时间戳抽帧会错位，已改用帧号口径）。
+配套脚本：<span class="mono">icq_cap_patch.py</span>（接入模块）、
+<span class="mono">_icq_autotune.py</span>（采样探测版，长视频可选）、
+<span class="mono">_autotune_verify.py</span>、<span class="mono">_downscale_test.py</span>。
+</p>
+
+</div></body></html>

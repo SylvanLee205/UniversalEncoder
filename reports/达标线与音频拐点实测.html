@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>达标线与音频拐点实测</title>
+<style>
+:root{--bg:#1b1b1f;--fg:#e8e6e3;--muted:#9a978f;--line:#3a3a40;--g:#5DCAA5;--b:#85B7EB;--o:#EF9F27;}
+*{box-sizing:border-box}
+body{margin:0;padding:32px 24px;background:var(--bg);color:var(--fg);
+ font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.7;}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-size:22px;font-weight:500;margin:0 0 6px}
+h2{font-size:16px;font-weight:500;margin:38px 0 12px;padding-left:10px;border-left:3px solid var(--g)}
+.sub{color:var(--muted);font-size:13px;margin-bottom:8px}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:left}
+th{color:var(--muted);font-weight:500;font-size:12px}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+td.strong{color:var(--g);font-weight:500}
+.card{background:#232328;border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px}
+.kv div:nth-child(odd){color:var(--muted)}
+code{background:#2e2e35;padding:1px 6px;border-radius:4px;font-size:12.5px;
+ font-family:ui-monospace,Consolas,monospace;color:var(--b)}
+.warn{border-left:3px solid var(--o);background:#2a2418;padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
+.good{border-left:3px solid var(--g);background:#16241f;padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
+ul{margin:8px 0;padding-left:20px} li{margin:4px 0}
+</style></head><body><div class="wrap">
+
+<h1>VMAF 达标线 & Opus 音频拐点</h1>
+<div class="sub">hevc_qsv / preset medium / Intel QSV ｜ libopus vbr on ｜ 抽样窗口 VMAF（按帧号抽帧）</div>
+
+<h2>一、视频：每个规格要多少码率才达标</h2>
+<svg viewBox="0 0 900 420" width="100%" xmlns="http://www.w3.org/2000/svg"><rect width="900" height="420" fill="#1b1b1f"/><line x1="70" y1="370.0" x2="870" y2="370.0" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="370.0" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">60</text><line x1="70" y1="316.9" x2="870" y2="316.9" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="316.9" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">65</text><line x1="70" y1="263.8" x2="870" y2="263.8" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="263.8" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">70</text><line x1="70" y1="210.6" x2="870" y2="210.6" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="210.6" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">75</text><line x1="70" y1="157.5" x2="870" y2="157.5" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="157.5" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">80</text><line x1="70" y1="104.4" x2="870" y2="104.4" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="104.4" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">85</text><line x1="70" y1="51.2" x2="870" y2="51.2" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="51.2" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">90</text><line x1="70.0" y1="30" x2="70.0" y2="370" stroke="#3a3a40" stroke-width="0.5"/><text x="70.0" y="386" fill="#9a978f" font-size="11" text-anchor="middle">250k</text><line x1="330.6" y1="30" x2="330.6" y2="370" stroke="#3a3a40" stroke-width="0.5"/><text x="330.6" y="386" fill="#9a978f" font-size="11" text-anchor="middle">500k</text><line x1="591.1" y1="30" x2="591.1" y2="370" stroke="#3a3a40" stroke-width="0.5"/><text x="591.1" y="386" fill="#9a978f" font-size="11" text-anchor="middle">1000k</text><line x1="851.7" y1="30" x2="851.7" y2="370" stroke="#3a3a40" stroke-width="0.5"/><text x="851.7" y="386" fill="#9a978f" font-size="11" text-anchor="middle">2000k</text><line x1="70" y1="157.5" x2="870" y2="157.5" stroke="#5DCAA5" stroke-width="1" stroke-dasharray="5 4" opacity="0.75"/><text x="866" y="151.5" fill="#5DCAA5" font-size="11" text-anchor="end">80 分线</text><line x1="70" y1="263.8" x2="870" y2="263.8" stroke="#EF9F27" stroke-width="1" stroke-dasharray="5 4" opacity="0.75"/><text x="866" y="257.8" fill="#EF9F27" font-size="11" text-anchor="end">70 分线</text><polyline points="91.9,175.1 210.2,123.2 303.3,89.8 421.0,54.1" fill="none" stroke="#5DCAA5" stroke-width="2"/><circle cx="91.9" cy="175.1" r="4" fill="#5DCAA5"/><text x="91.9" y="165.1" fill="#5DCAA5" font-size="10" text-anchor="middle">Q36 78.34</text><circle cx="210.2" cy="123.2" r="4" fill="#5DCAA5"/><text x="210.2" y="113.2" fill="#5DCAA5" font-size="10" text-anchor="middle">Q34 83.23</text><circle cx="303.3" cy="89.8" r="4" fill="#5DCAA5"/><text x="303.3" y="79.8" fill="#5DCAA5" font-size="10" text-anchor="middle">Q32 86.37</text><circle cx="421.0" cy="54.1" r="4" fill="#5DCAA5"/><text x="421.0" y="44.1" fill="#5DCAA5" font-size="10" text-anchor="middle">Q30 89.73</text><text x="91.9" y="197.1" fill="#5DCAA5" font-size="11" text-anchor="end">720×1280 @22fps</text><polyline points="134.8,210.5 248.5,180.9 339.5,161.9 458.1,142.2" fill="none" stroke="#85B7EB" stroke-width="2"/><circle cx="134.8" cy="210.5" r="4" fill="#85B7EB"/><text x="134.8" y="200.5" fill="#85B7EB" font-size="10" text-anchor="middle">Q36 75.01</text><circle cx="248.5" cy="180.9" r="4" fill="#85B7EB"/><text x="248.5" y="170.9" fill="#85B7EB" font-size="10" text-anchor="middle">Q34 77.8</text><circle cx="339.5" cy="161.9" r="4" fill="#85B7EB"/><text x="339.5" y="151.9" fill="#85B7EB" font-size="10" text-anchor="middle">Q32 79.59</text><circle cx="458.1" cy="142.2" r="4" fill="#85B7EB"/><text x="458.1" y="132.2" fill="#85B7EB" font-size="10" text-anchor="middle">Q30 81.44</text><text x="134.8" y="232.5" fill="#85B7EB" font-size="11" text-anchor="end">1088×1920 @22fps</text><polyline points="857.8,231.8 772.0,298.1" fill="none" stroke="#EF9F27" stroke-width="2"/><circle cx="857.8" cy="231.8" r="4" fill="#EF9F27"/><text x="857.8" y="221.8" fill="#EF9F27" font-size="10" text-anchor="middle">Q40 73.01</text><circle cx="772.0" cy="298.1" r="4" fill="#EF9F27"/><text x="772.0" y="288.1" fill="#EF9F27" font-size="10" text-anchor="middle">Q42 66.77</text><text x="857.8" y="253.8" fill="#EF9F27" font-size="11" text-anchor="end">1290×2796 @60fps</text><text x="470.0" y="408" fill="#9a978f" font-size="11" text-anchor="middle">视频码率 (kbps，对数轴)</text><text x="16" y="200.0" fill="#9a978f" font-size="11" text-anchor="middle" transform="rotate(-90 16 200.0)">VMAF</text></svg>
+<table>
+<tr><th>素材</th><th class="n">Q</th><th class="n">码率</th><th class="n">VMAF</th><th class="n">最低帧</th>
+<th class="n">高运动</th><th class="n">中运动</th><th class="n">低运动</th><th class="n">≥80</th><th class="n">≥70</th></tr>
+<tr><td>720×1280 @22fps</td><td class="n">Q30</td><td class="n">636</td><td class="n strong">89.73</td><td class="n">83.11</td><td class="n">89.91</td><td class="n">90.13</td><td class="n">89.15</td><td class="n">✓</td><td class="n">✓</td></tr><tr><td>720×1280 @22fps</td><td class="n">Q32</td><td class="n">465</td><td class="n strong">86.37</td><td class="n">77.62</td><td class="n">86.1</td><td class="n">86.82</td><td class="n">86.2</td><td class="n">✓</td><td class="n">✓</td></tr><tr><td>720×1280 @22fps</td><td class="n">Q34</td><td class="n">363</td><td class="n strong">83.23</td><td class="n">73.87</td><td class="n">82.99</td><td class="n">83.81</td><td class="n">82.9</td><td class="n">✓</td><td class="n">✓</td></tr><tr><td>720×1280 @22fps</td><td class="n">Q36</td><td class="n">265</td><td class="n strong">78.34</td><td class="n">68.26</td><td class="n">77.75</td><td class="n">79.13</td><td class="n">78.13</td><td class="n">—</td><td class="n">✓</td></tr><tr><td>1088×1920 @22fps</td><td class="n">Q30</td><td class="n">702</td><td class="n strong">81.44</td><td class="n">35.43</td><td class="n">82.9</td><td class="n">84.2</td><td class="n">77.22</td><td class="n">✓</td><td class="n">✓</td></tr><tr><td>1088×1920 @22fps</td><td class="n">Q32</td><td class="n">512</td><td class="n strong">79.59</td><td class="n">34.96</td><td class="n">80.43</td><td class="n">82.26</td><td class="n">76.09</td><td class="n">—</td><td class="n">✓</td></tr><tr><td>1088×1920 @22fps</td><td class="n">Q34</td><td class="n">402</td><td class="n strong">77.8</td><td class="n">34.3</td><td class="n">78.16</td><td class="n">80.37</td><td class="n">74.88</td><td class="n">—</td><td class="n">✓</td></tr><tr><td>1088×1920 @22fps</td><td class="n">Q36</td><td class="n">297</td><td class="n strong">75.01</td><td class="n">33.3</td><td class="n">74.63</td><td class="n">77.49</td><td class="n">72.92</td><td class="n">—</td><td class="n">✓</td></tr><tr><td>1290×2796 @60fps</td><td class="n">Q42</td><td class="n">1618</td><td class="n strong">66.77</td><td class="n">58.68</td><td class="n">68.35</td><td class="n">65.59</td><td class="n">66.38</td><td class="n">—</td><td class="n">—</td></tr>
+</table>
+
+<div class="card">
+<div class="kv">
+<div>720 达 80 分</div><div>约 <b>298 kbps</b>（≈Q35）—— Q34(363k) 已给 83.2，余量充足</div>
+<div>1080 达 80 分</div><div>约 <b>554 kbps</b>（≈Q31）—— <b>Q32 只有 79.59，差 0.4 分摸不到</b></div>
+<div>1290 达 70 分</div><div>约 <b>1833 kbps</b>（≈Q40.5）—— Q40(2033k) 给 73.0，Q41(1814k) 掉到 69.7</div>
+</div>
+</div>
+
+<div class="warn"><b>1290 的 Q41 会跌破 70 分线。</b>实测 Q40 = 2033k/73.01 分，Q41 = 1814k/约 69.7 分。
+所以 1290 必须停在 Q40 —— 这也正好说明上一轮把容差从 1.02 放宽到 1.08 是必要的：
+硬卡 1.02 会把 Q40(2070k) 判成超标、退到 Q41，<b>既多压一遍又掉出 70 分</b>。</div>
+
+<h2>二、音频：Opus 的性价比拐点在哪</h2>
+<svg viewBox="0 0 900 400" width="100%" xmlns="http://www.w3.org/2000/svg"><rect width="900" height="400" fill="#1b1b1f"/><line x1="70" y1="321.9" x2="870" y2="321.9" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="321.9" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">2</text><line x1="70" y1="265.8" x2="870" y2="265.8" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="265.8" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">3</text><line x1="70" y1="209.6" x2="870" y2="209.6" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="209.6" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">4</text><line x1="70" y1="153.5" x2="870" y2="153.5" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="153.5" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">5</text><line x1="70" y1="97.4" x2="870" y2="97.4" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="97.4" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">6</text><line x1="70" y1="41.2" x2="870" y2="41.2" stroke="#3a3a40" stroke-width="0.5"/><text x="62" y="41.2" fill="#9a978f" font-size="11" text-anchor="end" dominant-baseline="central">7</text><text x="110.0" y="366" fill="#9a978f" font-size="11" text-anchor="middle">16k</text><text x="216.7" y="366" fill="#9a978f" font-size="11" text-anchor="middle">32k</text><text x="323.3" y="366" fill="#9a978f" font-size="11" text-anchor="middle">48k</text><text x="430.0" y="366" fill="#9a978f" font-size="11" text-anchor="middle">64k</text><text x="643.3" y="366" fill="#9a978f" font-size="11" text-anchor="middle">96k</text><text x="856.7" y="366" fill="#9a978f" font-size="11" text-anchor="middle">128k</text><rect x="216.7" y="30" width="106.7" height="320" fill="#5DCAA5" opacity="0.10"/><text x="270.0" y="44" fill="#5DCAA5" font-size="11" text-anchor="middle">甜点区 32~48k</text><rect x="70" y="30" width="40.0" height="320" fill="#E24B4A" opacity="0.10"/><text x="90.0" y="44" fill="#F09595" font-size="11" text-anchor="middle">崩塌区</text><polyline points="111.6,64.6 155.3,94.9 208.0,143.0 258.7,171.6 309.3,190.5 334.4,196.4 378.4,213.8 440.2,247.0 520.4,276.2 704.0,325.4" fill="none" stroke="#85B7EB" stroke-width="2"/><circle cx="111.6" cy="64.6" r="3.5" fill="#85B7EB"/><circle cx="155.3" cy="94.9" r="3.5" fill="#85B7EB"/><circle cx="208.0" cy="143.0" r="3.5" fill="#85B7EB"/><circle cx="258.7" cy="171.6" r="3.5" fill="#85B7EB"/><circle cx="309.3" cy="190.5" r="3.5" fill="#85B7EB"/><circle cx="334.4" cy="196.4" r="3.5" fill="#85B7EB"/><circle cx="378.4" cy="213.8" r="3.5" fill="#85B7EB"/><circle cx="440.2" cy="247.0" r="3.5" fill="#85B7EB"/><circle cx="520.4" cy="276.2" r="3.5" fill="#85B7EB"/><circle cx="704.0" cy="325.4" r="3.5" fill="#85B7EB"/><text x="710.0" y="325.4" fill="#85B7EB" font-size="11" dominant-baseline="central">立体声（三源平均）</text><polyline points="111.8,69.8 169.8,123.1 224.2,155.1 278.7,182.7 332.9,206.4 436.0,248.3" fill="none" stroke="#EF9F27" stroke-width="2"/><circle cx="111.8" cy="69.8" r="3.5" fill="#EF9F27"/><circle cx="169.8" cy="123.1" r="3.5" fill="#EF9F27"/><circle cx="224.2" cy="155.1" r="3.5" fill="#EF9F27"/><circle cx="278.7" cy="182.7" r="3.5" fill="#EF9F27"/><circle cx="332.9" cy="206.4" r="3.5" fill="#EF9F27"/><circle cx="436.0" cy="248.3" r="3.5" fill="#EF9F27"/><text x="442.0" y="248.3" fill="#EF9F27" font-size="11" dominant-baseline="central">单声道（三源平均）</text><text x="470.0" y="388" fill="#9a978f" font-size="11" text-anchor="middle">Opus 实际码率 (kbps)</text><text x="16" y="190.0" fill="#9a978f" font-size="11" text-anchor="middle" transform="rotate(-90 16 190.0)">语音段谱失真 LSD (dB，越低越好)</text></svg>
+<table>
+<tr><th class="n">目标</th><th class="n">立体声实际</th><th class="n">语音段 LSD</th><th class="n">全频 LSD</th>
+<th class="n">单声道 实际/语音LSD</th></tr>
+<tr><td class="n">16k</td><td class="n">16.2k</td><td class="n strong">6.58</td><td class="n">10.02</td><td class="n">16k / 6.49</td></tr><tr><td class="n">24k</td><td class="n">22.8k</td><td class="n strong">6.04</td><td class="n">9.94</td><td class="n">25k / 5.54</td></tr><tr><td class="n">32k</td><td class="n">30.7k</td><td class="n strong">5.19</td><td class="n">9.48</td><td class="n">33k / 4.97</td></tr><tr><td class="n">40k</td><td class="n">38.3k</td><td class="n strong">4.68</td><td class="n">9.03</td><td class="n">41k / 4.48</td></tr><tr><td class="n">48k</td><td class="n">45.9k</td><td class="n strong">4.34</td><td class="n">8.54</td><td class="n">49k / 4.06</td></tr><tr><td class="n">56k</td><td class="n">49.7k</td><td class="n strong">4.24</td><td class="n">8.35</td><td class="n">—</td></tr><tr><td class="n">64k</td><td class="n">56.3k</td><td class="n strong">3.93</td><td class="n">7.79</td><td class="n">65k / 3.31</td></tr><tr><td class="n">80k</td><td class="n">65.5k</td><td class="n strong">3.33</td><td class="n">7.36</td><td class="n">—</td></tr><tr><td class="n">96k</td><td class="n">77.6k</td><td class="n strong">2.81</td><td class="n">6.83</td><td class="n">—</td></tr><tr><td class="n">128k</td><td class="n">105.1k</td><td class="n strong">1.94</td><td class="n">5.72</td><td class="n">—</td></tr>
+</table>
+
+<table>
+<tr><th></th><th class="n">边际收益最高段</th><th class="n">dB/kbps</th><th class="n">48k 之后平均</th></tr>
+<tr><td>立体声</td><td class="n">23k → 31k</td><td class="n strong">0.1085</td><td class="n">0.0465</td></tr><tr><td>单声道</td><td class="n">16k → 25k</td><td class="n strong">0.1090</td><td class="n">0.0483</td></tr>
+</table>
+
+<div class="good"><b>结论：拐点在 32~48k，推荐 40k。</b><br>
+<ul>
+<li>你现在 <code>-b:a 64k</code> 实际花 <b>58k</b>；改 <code>40k</code> 实际约 <b>38k</b>，<b>省 33%</b>，
+    语音段失真只差 0.15~0.2 dB（不可闻）。</li>
+<li>16k→32k 这段每 kbps 能买 0.11~0.13 dB，48k 之后腰斩到 0.045~0.05 dB —— 再加钱就是浪费。</li>
+<li><b>崩塌点在 16k 以下</b>：单声道 12k 时高频只剩 2~5%，带宽掉到 9.1kHz，失真飙到 25~34 dB，明显发闷。
+    立体声 16k 仍安全（带宽保持 17kHz）。</li>
+</ul></div>
+
+<div class="card">
+<b>关于转单声道（预期要修正）</b><br>
+三个源的左右声道相关系数 <b>0.9997~1.0</b>、声道差能量 <b>0.00~0.03%</b> —— 本质是"双声道复制"的假立体声，
+转单声道<b>零信息损失</b>。但实测收益<b>只有 6~9%</b>（打平立体声 64k 的音质，单声道需 48~54k），
+远不是以为的一半。原因是 Opus 的 intensity / mid-side 立体声编码对这种内容已经很高效了。
+可做，但别指望奇迹。</div>
+
+<h2>三、合起来：省下的音频码率该给视频吗</h2>
+<div class="card">
+<div class="kv">
+<div>720（约 360k 档）</div><div>视频斜率 <b>0.02~0.05 VMAF/kbps</b> → 音频省 20k 换回 <b>+1.0 分</b>，<b>划算</b></div>
+<div>1080（约 510k 档）</div><div>视频斜率 <b>0.010~0.016 VMAF/kbps</b> → 同样 20k 只换回 <b>+0.2~0.3 分</b>，<b>边际</b></div>
+</div>
+</div>
+<p>所以你说的"总码率 400 以下时音频占 68 不值"——<b>在低码率档这个判断是对的</b>：
+400k 总码率下，音频从 58k 降到 38k，视频从 342k 涨到 362k，VMAF 能回来约 1 分，
+而音频只损失 0.2 dB。但到了 1080 那一档，同样的取舍就只能换回 0.2 分，基本是平局。</p>
+
+<h2>四、可直接抄的参数</h2>
+<div class="card">
+<div class="kv">
+<div>音频（推荐）</div><div><code>-c:a libopus -b:a 40k -vbr on</code></div>
+<div>音频（激进）</div><div><code>-b:a 32k</code>（省 47%，失真 +0.7~0.9 dB，可能轻微可闻）</div>
+<div>音频（底线）</div><div><code>-b:a 24k</code>（省 60%，失真 +1.7 dB，可闻但不影响理解）</div>
+<div>视频 720</div><div>Q34~35（363k / 310k）—— 83.2 / 约 80.5</div>
+<div>视频 1080</div><div>Q30~31（702k / 554k）—— 81.4 / 约 80.0，<b>不要用 Q32</b></div>
+<div>视频 1290</div><div>Q40（2033k）—— 73.0，靠 2M 天花板自动落点，别让它退到 Q41</div>
+</div>
+</div>
+
+<div class="sub" style="margin-top:28px">数据文件：_quality_target.json ／ _audio_sweep.json　｜　
+脚本：_quality_target.py ／ _audio_sweep.py ／ _audio_tradeoff.py</div>
+</div></body></html>

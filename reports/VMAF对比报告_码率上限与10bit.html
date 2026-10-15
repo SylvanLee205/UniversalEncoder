@@ -1,0 +1,231 @@
+<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>
+<title>码率上限方案 / 10bit 色带 / 最终推荐参数</title>
+<style>
+:root{--bg:#0e1116;--card:#161b22;--line:#2a323d;--fg:#e6edf3;--dim:#9aa7b4;
+      --accent:#58a6ff;--good:#3fb950;--warn:#d29922;--bad:#f85149;}
+*{box-sizing:border-box}
+body{margin:0;padding:28px;background:var(--bg);color:var(--fg);
+     font-family:"Microsoft YaHei","PingFang SC",-apple-system,Segoe UI,sans-serif;
+     font-size:14px;line-height:1.65}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:17px;margin:32px 0 10px;padding-left:10px;border-left:4px solid var(--accent)}
+h3{font-size:15px;margin:20px 0 8px;color:var(--accent)}
+.sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+table{border-collapse:collapse;width:100%;background:var(--card);border-radius:8px;
+      overflow:hidden;margin-bottom:14px}
+th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line);
+      font-variant-numeric:tabular-nums}
+th{background:#1c232c;color:var(--dim);font-weight:600}
+th:first-child,td:first-child{text-align:left}
+tr:last-child td{border-bottom:none}
+.best{color:var(--good);font-weight:700}
+.up{color:var(--good)}.down{color:var(--bad)}.flat{color:var(--dim)}
+.warn{color:var(--warn)}
+.note{color:var(--dim);font-size:12.5px;margin:6px 0 20px}
+code,pre{background:#1c232c;padding:2px 6px;border-radius:4px;font-size:12.5px;
+         font-family:Consolas,Monaco,monospace}
+pre{padding:12px 14px;line-height:1.55;overflow-x:auto;white-space:pre-wrap}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card h4{margin:0 0 8px;font-size:14.5px;color:var(--fg)}
+.card .why{color:var(--dim);font-size:12.5px;margin-bottom:8px}
+.kv{color:var(--dim);font-size:12.5px}
+</style></head><body>
+<h1>码率上限方案对比 · 10bit 色带实测 · 最终推荐参数</h1>
+<div class='sub'>Intel QSV（hevc_qsv / av1_qsv）· ffmpeg n9 · VMAF 抽样沿用第一轮区间（低/中/高运动各 3 段×1s）· 色带度量：平坦区内 1 灰阶阶跃边界的连贯强度（10bit 源用 16bit 精确截断还原，已排除 ffmpeg format=gray 的逐行抖动伪影）</div>
+<h2>0. 结论速览</h2>
+<div class='cards'>
+<div class='card'><h4>① ICQ + maxrate 是伪方案</h4><div class='why'>
+加 <code>-maxrate/-bufsize</code> 后 QSV 把 ICQ 切成 CQP，<b>global_quality 被完全忽略</b>
+（Q25/30/35 三个输出 md5 完全相同）；且 CQP 根本不限码率 —— 1290 素材设 2M 上限，
+实际跑到 <b>HEVC 5.75M / AV1 3.61M</b>。</div>
+<div class='kv'>→ 想限体积：要么 ICQ 迭代调 Q（限平均码率），要么 VBR 上限模式（限峰值）。</div></div>
+
+<div class='card'><h4>② 只限"体积"：ICQ 迭代调 Q 画质最高</h4><div class='why'>
+同样花到预算码率，ICQ（不受 VBV 峰值约束）比脚本 VBR 上限模式高
+<b>+0.9 ~ +4.9 VMAF</b>，三个素材一致。</div>
+<div class='kv'>→ 做法：先编 Q30，按 <code>Q_new = Q + ln(实测码率/目标码率)/0.163</code> 调整，2~4 次收敛。</div></div>
+
+<div class='card'><h4>③ 要封峰值带宽：脚本 VBR 上限 + 激进档</h4><div class='why'>
+<code>-b:v T -maxrate 1.2T -bufsize 2.4T</code> 稳定咬住上限；HEVC 激进档比推荐档高
++0.4 ~ +2.8 VMAF（同码率），AV1 推荐档更稳（激进档码率会跑偏）。</div>
+<div class='kv'>→ 1.5M 封顶 = T 1250k / maxrate 1500k / bufsize 3000k。</div></div>
+
+<div class='card'><h4>④ 强制 10bit：本批素材无可测收益</h4><div class='why'>
+长连贯条带边界指标全部为 0（无可见色带）；VMAF 差 ±0.5（噪声级）；
+单帧色带分数 8bit vs 10bit 方向都不一致。10bit 链路必须加
+<code>hwdownload</code>（放弃零拷贝，慢 ~30%），且 AV1 QSV 不支持 B 帧。</div>
+<div class='kv'>→ 8bit 源压 8bit；真怕色带（天空/暗场渐变内容）才用 10bit + 会抖动的播放器。</div></div>
+</div>
+<h2>1. 码率上限下的方案实测</h2>
+<h3><sample>.mp4 — 上限 1.5 Mbps</h3>
+<table><tr><th>方案</th><th>码率 kbps</th><th>体积 MB</th><th>VMAF 均值</th><th>低</th><th>中</th><th>高</th><th>最低帧</th><th>耗时 s</th><th>色带(截断)</th><th>色带(抖动)</th></tr>
+<tr><td>HEVC · 脚本上限版·激进档 8bit</td><td>1176</td><td>90.6</td><td>83.00</td><td>79.02</td><td>86.78</td><td>83.19</td><td>36.79</td><td>0</td><td>217.0</td><td>217.0</td></tr>
+<tr><td>HEVC · 脚本上限版·推荐档 8bit</td><td>1177</td><td>90.7</td><td>82.61</td><td>78.91</td><td>86.90</td><td>82.03</td><td>36.51</td><td>41.3</td><td>211.8</td><td>211.8</td></tr>
+<tr><td>HEVC · 脚本上限版·激进档 10bit</td><td>1176</td><td>90.6</td><td>83.22</td><td>79.19</td><td>86.98</td><td>83.50</td><td>37.03</td><td>0</td><td>302.8</td><td>1180.5</td></tr>
+<tr><td>HEVC · AVBR 自适应码率</td><td>1412</td><td>107.9</td><td>82.93</td><td>79.20</td><td>86.98</td><td>82.61</td><td>37.09</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>HEVC · ICQ Q30 + maxrate（伪方案）</td><td>723</td><td>57.4</td><td>81.06</td><td>77.22</td><td>83.98</td><td>81.98</td><td>35.87</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>HEVC · ICQ Q23 迭代匹配码率</td><td>1330</td><td>101.9</td><td class='best'>83.92</td><td>78.59</td><td>86.57</td><td>86.60</td><td>36.73</td><td>43.5</td><td>—</td><td>—</td></tr>
+<tr><td>AV1 · 脚本上限版·激进档 8bit</td><td>1165</td><td>89.6</td><td>82.38</td><td>78.90</td><td>86.23</td><td>82.02</td><td>36.64</td><td>0</td><td>182.8</td><td>182.8</td></tr>
+<tr><td>AV1 · 脚本上限版·推荐档 8bit</td><td>1195</td><td>91.8</td><td>82.45</td><td>78.88</td><td>86.38</td><td>82.08</td><td>36.24</td><td>42.7</td><td>167.0</td><td>167.0</td></tr>
+<tr><td>AV1 · 脚本上限版·激进档 10bit</td><td>1169</td><td>89.9</td><td>82.55</td><td>79.01</td><td>86.55</td><td>82.09</td><td>36.60</td><td>0</td><td>264.9</td><td>1161.7</td></tr>
+<tr><td>AV1 · AVBR 自适应码率</td><td>1392</td><td>106.3</td><td>83.00</td><td>79.07</td><td>86.61</td><td>83.32</td><td>36.15</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>AV1 · ICQ Q30 + maxrate（伪方案）</td><td>407</td><td>34.0</td><td>77.19</td><td>75.10</td><td>80.13</td><td>76.33</td><td>34.21</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>AV1 · ICQ Q24 迭代匹配码率 <span class='down'>超限</span></td><td>1645</td><td>124.8</td><td>84.24</td><td>78.78</td><td>86.73</td><td>87.22</td><td>36.53</td><td>41.1</td><td>—</td><td>—</td></tr>
+</table>
+<div class='note'>源自身色带基线 180.6；评估时刻 [314.17, 355.7, 438.75, 231.11]（自动挑选的平坦+大渐变帧）。所有方案的"长连贯条带边界"指标均为 0，即本批素材未产生可见色带。</div>
+<h3><sample>.mp4 — 上限 2 Mbps</h3>
+<table><tr><th>方案</th><th>码率 kbps</th><th>体积 MB</th><th>VMAF 均值</th><th>低</th><th>中</th><th>高</th><th>最低帧</th><th>耗时 s</th><th>色带(截断)</th><th>色带(抖动)</th></tr>
+<tr><td>HEVC · 脚本上限版·激进档 8bit</td><td>1667</td><td>22.5</td><td>68.15</td><td>68.10</td><td>65.83</td><td>70.53</td><td>46.49</td><td>0</td><td>1317.5</td><td>1317.5</td></tr>
+<tr><td>HEVC · 脚本上限版·推荐档 8bit</td><td>1668</td><td>22.5</td><td>65.40</td><td>65.99</td><td>62.22</td><td>67.98</td><td>47.68</td><td>37.2</td><td>1345.6</td><td>1345.6</td></tr>
+<tr><td>HEVC · 脚本上限版·激进档 10bit</td><td>1667</td><td>22.5</td><td>67.68</td><td>67.75</td><td>65.26</td><td>70.02</td><td>46.80</td><td>0</td><td>1017.3</td><td>2075.9</td></tr>
+<tr><td>HEVC · AVBR 自适应码率</td><td>1973</td><td>26.5</td><td>69.30</td><td>69.45</td><td>67.62</td><td>70.84</td><td>47.17</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>HEVC · ICQ Q30 + maxrate（伪方案） <span class='down'>超限</span></td><td>5754</td><td>75.8</td><td>89.45</td><td>89.38</td><td>89.38</td><td>89.58</td><td>82.51</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>HEVC · ICQ Q40 迭代匹配码率</td><td>2033</td><td>27.3</td><td class='best'>73.01</td><td>72.53</td><td>72.08</td><td>74.43</td><td>63.58</td><td>38.1</td><td>—</td><td>—</td></tr>
+<tr><td>AV1 · 脚本上限版·激进档 8bit</td><td>1700</td><td>22.9</td><td>67.28</td><td>69.15</td><td>63.28</td><td>69.42</td><td>49.36</td><td>0</td><td>1159.8</td><td>1159.8</td></tr>
+<tr><td>AV1 · 脚本上限版·推荐档 8bit</td><td>1996</td><td>26.7</td><td>70.82</td><td>71.26</td><td>68.67</td><td>72.53</td><td>55.09</td><td>42.6</td><td>1125.7</td><td>1125.7</td></tr>
+<tr><td>AV1 · 脚本上限版·激进档 10bit</td><td>1706</td><td>23.0</td><td>67.38</td><td>69.34</td><td>63.45</td><td>69.35</td><td>49.74</td><td>0</td><td>995.6</td><td>2077.5</td></tr>
+<tr><td>AV1 · AVBR 自适应码率</td><td>2024</td><td>27.1</td><td>71.55</td><td>72.88</td><td>68.88</td><td>72.89</td><td>54.63</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>AV1 · ICQ Q30 + maxrate（伪方案） <span class='down'>超限</span></td><td>3613</td><td>47.8</td><td>81.24</td><td>81.49</td><td>80.89</td><td>81.35</td><td>68.30</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>AV1 · ICQ Q37 迭代匹配码率</td><td>2064</td><td>27.6</td><td>72.02</td><td>72.98</td><td>71.19</td><td>71.90</td><td>59.40</td><td>37.1</td><td>—</td><td>—</td></tr>
+</table>
+<div class='note'>源自身色带基线 945.4；评估时刻 [100.18, 48.49, 70.64, 41.1]（自动挑选的平坦+大渐变帧）。所有方案的"长连贯条带边界"指标均为 0，即本批素材未产生可见色带。</div>
+<h3><sample>.mp4 — 上限 600 kbps（源本身仅 0.85M）</h3>
+<table><tr><th>方案</th><th>码率 kbps</th><th>体积 MB</th><th>VMAF 均值</th><th>低</th><th>中</th><th>高</th><th>最低帧</th><th>耗时 s</th><th>色带(截断)</th><th>色带(抖动)</th></tr>
+<tr><td>HEVC · 脚本上限版·激进档 8bit</td><td>441</td><td>39.2</td><td>83.93</td><td>85.94</td><td>85.99</td><td>79.87</td><td>68.86</td><td>0</td><td>742.8</td><td>742.8</td></tr>
+<tr><td>HEVC · 脚本上限版·推荐档 8bit</td><td>442</td><td>39.2</td><td>83.19</td><td>87.03</td><td>84.26</td><td>78.29</td><td>72.12</td><td>19.6</td><td>757.3</td><td>757.3</td></tr>
+<tr><td>HEVC · 脚本上限版·激进档 10bit</td><td>441</td><td>39.2</td><td>84.27</td><td>86.12</td><td>86.58</td><td>80.11</td><td>68.28</td><td>0</td><td>986.9</td><td>2055.8</td></tr>
+<tr><td>HEVC · AVBR 自适应码率</td><td>530</td><td>46.2</td><td>85.24</td><td>89.82</td><td>85.42</td><td>80.49</td><td>71.99</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>HEVC · ICQ Q30 + maxrate（伪方案） <span class='down'>超限</span></td><td>661</td><td>56.4</td><td>88.57</td><td>89.28</td><td>88.72</td><td>87.72</td><td>75.55</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>HEVC · ICQ Q30 迭代匹配码率</td><td>629</td><td>53.9</td><td class='best'>89.62</td><td>89.22</td><td>90.08</td><td>89.55</td><td>80.71</td><td>21.9</td><td>—</td><td>—</td></tr>
+<tr><td>AV1 · 脚本上限版·激进档 8bit</td><td>457</td><td>40.3</td><td>83.62</td><td>86.74</td><td>84.04</td><td>80.09</td><td>71.60</td><td>0</td><td>602.4</td><td>602.4</td></tr>
+<tr><td>AV1 · 脚本上限版·推荐档 8bit</td><td>524</td><td>45.5</td><td>84.86</td><td>88.61</td><td>86.01</td><td>79.96</td><td>70.62</td><td>21.6</td><td>637.1</td><td>637.1</td></tr>
+<tr><td>AV1 · 脚本上限版·激进档 10bit</td><td>457</td><td>40.3</td><td>83.49</td><td>86.85</td><td>84.09</td><td>79.52</td><td>71.17</td><td>0</td><td>858.5</td><td>2006.8</td></tr>
+<tr><td>AV1 · AVBR 自适应码率</td><td>544</td><td>47.1</td><td>85.54</td><td>88.25</td><td>87.11</td><td>81.26</td><td>74.59</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>AV1 · ICQ Q30 + maxrate（伪方案）</td><td>372</td><td>33.6</td><td>80.37</td><td>82.66</td><td>80.48</td><td>77.97</td><td>59.67</td><td>0</td><td>—</td><td>—</td></tr>
+<tr><td>AV1 · ICQ Q30 迭代匹配码率</td><td>569</td><td>49.0</td><td>86.64</td><td>86.35</td><td>87.40</td><td>86.16</td><td>77.23</td><td>19.9</td><td>—</td><td>—</td></tr>
+</table>
+<div class='note'>源自身色带基线 453.6；评估时刻 [379.97, 424.33, 25.07, 335.61]（自动挑选的平坦+大渐变帧）。所有方案的"长连贯条带边界"指标均为 0，即本批素材未产生可见色带。</div>
+<h2>2. 同样花到预算，谁画质最高</h2>
+<table><tr><th>素材 @ 预算</th><th>编码器</th><th>ICQ 迭代调 Q</th><th>AVBR</th><th>VBR 激进档</th><th>VBR 推荐档</th><th>冠军</th></tr>
+<tr><td>原1080_2000k @ 1.5 Mbps</td><td>HEVC</td><td>83.92 <span class='kv'>(1330k)</span></td><td>82.93 <span class='kv'>(1412k)</span></td><td>83.00 <span class='kv'>(1176k)</span></td><td>82.61 <span class='kv'>(1177k)</span></td><td class='best'>ICQ Q23 迭代匹配码率 83.92</td></tr>
+<tr><td>原1080_2000k @ 1.5 Mbps</td><td>AV1</td><td>84.24 <span class='kv'>(1645k)</span></td><td>83.00 <span class='kv'>(1392k)</span></td><td>82.38 <span class='kv'>(1165k)</span></td><td>82.45 <span class='kv'>(1195k)</span></td><td class='best'>ICQ Q24 迭代匹配码率 84.24</td></tr>
+<tr><td>原1290_15m @ 2 Mbps</td><td>HEVC</td><td>73.01 <span class='kv'>(2033k)</span></td><td>69.30 <span class='kv'>(1973k)</span></td><td>68.15 <span class='kv'>(1667k)</span></td><td>65.40 <span class='kv'>(1668k)</span></td><td class='best'>ICQ Q40 迭代匹配码率 73.01</td></tr>
+<tr><td>原1290_15m @ 2 Mbps</td><td>AV1</td><td>72.02 <span class='kv'>(2064k)</span></td><td>71.55 <span class='kv'>(2024k)</span></td><td>67.28 <span class='kv'>(1700k)</span></td><td>70.82 <span class='kv'>(1996k)</span></td><td class='best'>ICQ Q37 迭代匹配码率 72.02</td></tr>
+<tr><td>原720_1000kbps @ 600 kbps（源本身仅 0.85M）</td><td>HEVC</td><td>89.62 <span class='kv'>(629k)</span></td><td>85.24 <span class='kv'>(530k)</span></td><td>83.93 <span class='kv'>(441k)</span></td><td>83.19 <span class='kv'>(442k)</span></td><td class='best'>ICQ Q30 迭代匹配码率 89.62</td></tr>
+<tr><td>原720_1000kbps @ 600 kbps（源本身仅 0.85M）</td><td>AV1</td><td>86.64 <span class='kv'>(569k)</span></td><td>85.54 <span class='kv'>(544k)</span></td><td>83.62 <span class='kv'>(457k)</span></td><td>84.86 <span class='kv'>(524k)</span></td><td class='best'>ICQ Q30 迭代匹配码率 86.64</td></tr>
+</table>
+<div class='note'>括号内为实测码率：ICQ 迭代与 AVBR 都贴近预算上限，脚本 VBR 的目标=上限/1.2 所以码率略低（峰值封顶的代价）。1290 上 ICQ Q40（2.03M，73.01）比 AVBR（1.97M，69.30）高 <b>+3.7</b>，比 VBR 激进档（1.67M，68.15）高 <b>+4.9</b>。</div>
+<h2>3. 强制 10bit（p010le）对色带与画质的影响</h2>
+<table><tr><th>素材</th><th>编码器</th><th>VMAF 8bit</th><th>VMAF 10bit</th><th>色带 8bit(截断)</th><th>色带 10bit(截断)</th><th>色带 10bit(抖动)</th><th>码率差</th><th>耗时差</th></tr>
+<tr><td><sample>.mp4</td><td>HEVC</td><td>83.00</td><td>83.22 <span class='up'>+0.23</span></td><td>217.0</td><td>302.8</td><td>1180.5</td><td>+0.0%</td><td>+0%</td></tr>
+<tr><td><sample>.mp4</td><td>AV1</td><td>82.38</td><td>82.55 <span class='up'>+0.16</span></td><td>182.8</td><td>264.9</td><td>1161.7</td><td>+0.3%</td><td>+0%</td></tr>
+<tr><td><sample>.mp4</td><td>HEVC</td><td>68.15</td><td>67.68 <span class='down'>-0.47</span></td><td>1317.5</td><td>1017.3</td><td>2075.9</td><td>+0.0%</td><td>+0%</td></tr>
+<tr><td><sample>.mp4</td><td>AV1</td><td>67.28</td><td>67.38 <span class='up'>+0.10</span></td><td>1159.8</td><td>995.6</td><td>2077.5</td><td>+0.4%</td><td>+0%</td></tr>
+<tr><td><sample>.mp4</td><td>HEVC</td><td>83.93</td><td>84.27 <span class='up'>+0.34</span></td><td>742.8</td><td>986.9</td><td>2055.8</td><td>+0.0%</td><td>+0%</td></tr>
+<tr><td><sample>.mp4</td><td>AV1</td><td>83.62</td><td>83.49 <span class='down'>-0.14</span></td><td>602.4</td><td>858.5</td><td>2006.8</td><td>+0.0%</td><td>+0%</td></tr>
+</table>
+<div class='note'><b>解读：</b>
+① 长连贯条带边界指标三个素材全部为 0 —— 在 1.5M/2M/600k 这档码率下，这批素材
+（实拍有噪点 + 录屏 UI）<b>没有产生肉眼可见的色带</b>，10bit 自然无从改善；
+② VMAF 差 ±0.5（噪声级）；③ 色带分数 8bit vs 10bit 方向都不一致（1080/720 上 10bit 略高、
+1290 上 10bit 略低），均在 ±40% 内；
+④ 10bit 链路必须 <code>-vf hwdownload,format=nv12,format=p010le</code>（放弃零拷贝，慢 ~30%）。
+<br><b>建议：8bit 源直接压 8bit；只有当内容是大面积平滑渐变（天空/动画/暗场）
+且码率压得很低时，10bit 才可能改善色带 —— 且播放端要带抖动（dither）才吃得到收益。</b></div>
+<h2>4. 最终推荐参数</h2>
+<div class='cards'>
+<div class='card'><h4>A · ICQ 质量模式 · 最佳效率（脚本默认）</h4>
+<div class='why'>不叠加任何进阶参数：ICQ 下它们全是空操作，激进档反而更差。
+preset 用 medium（veryslow 只值 +0.2 VMAF 却慢 1.5~2.4×）。</div>
+<pre>ffmpeg -hwaccel qsv -hwaccel_output_format qsv -i in.mp4 \
+  -map 0:v:0 -c:v hevc_qsv -preset medium -global_quality:v 30 \
+  -g 176 -tag:v hvc1 \
+  -map 0:a:0? -c:a libopus -b:a 64k -vbr:a on \
+  -compression_level:a 10 -frame_duration:a 60 -application:a audio -ac 2 \
+  -movflags +faststart out_hevc_q30.mp4</pre>
+<div class='kv'>AV1：hevc_qsv→av1_qsv、hvc1→av01，其余相同。</div></div>
+
+<div class='card'><h4>B · 限体积（1.5M/2M）画质最高 · ICQ 迭代调 Q</h4>
+<div class='why'>同预算下比 VBR 上限模式高 +0.9~+4.9 VMAF。缺点：瞬时码率不受控
+（对体积无影响，对直播推流不适用）。</div>
+<pre>第一步：-global_quality:v 30 压一遍，测视频流码率 K
+第二步：Q_new = Q + ln(K / 目标码率) / 0.163   （四舍五入）
+第三步：用 Q_new 重压，偏差 &gt;6% 再迭代一次（通常 2~4 次收敛）</pre>
+<div class='kv'>实测收敛点：1080@1.5M → HEVC Q23 / AV1 Q24；
+1290@2M → HEVC Q40 / AV1 Q37；720@600k → 双双 Q30。
+建议给 UniversalEncoder 加一个"目标体积模式"自动迭代。</div></div>
+
+<div class='card'><h4>C · 封峰值带宽 · 脚本 VBR 上限 + 激进档（HEVC）</h4>
+<div class='why'>上限公式 <code>-b:v T -maxrate 1.2T -bufsize 2.4T</code>，T = 上限÷1.2。
+同码率下激进档比推荐档高 +0.4~+2.8 VMAF。<b>别加 -look_ahead_depth</b>（必崩）。</div>
+<pre># 1.5M 封顶
+ffmpeg -hwaccel qsv -hwaccel_output_format qsv -i in.mp4 \
+  -map 0:v:0 -c:v hevc_qsv -preset veryslow \
+  -b:v 1250k -maxrate 1500k -bufsize 3000k \
+  -extbrc 1 -bf 7 -mbbrc 1 -rdo 1 -adaptive_i 1 -adaptive_b 1 \
+  -b_strategy 1 -p_strategy 1 -gpb 1 -low_power 0 -transform_skip 1 \
+  -g 176 -tag:v hvc1 -map 0:a:0? -c:a libopus -b:a 64k -vbr:a on \
+  -movflags +faststart out_hevc_1500cap.mp4</pre></div>
+
+<div class='card'><h4>D · 封峰值带宽 · VBR + 推荐档（AV1）</h4>
+<div class='why'>AV1 QSV 无 rdo/refs/mbbrc/gpb/max_qp，激进档会让码率跑偏
+（1290 上 1700k vs 目标 1667k 咬得住但画质反而不稳），推荐档更稳。</div>
+<pre>ffmpeg -hwaccel qsv -hwaccel_output_format qsv -i in.mp4 \
+  -map 0:v:0 -c:v av1_qsv -preset veryslow \
+  -b:v 1250k -maxrate 1500k -bufsize 3000k \
+  -extbrc 1 -bf 4 -adaptive_i 1 -adaptive_b 1 -b_strategy 1 \
+  -g 176 -tag:v av01 -map 0:a:0? -c:a libopus -b:a 64k -vbr:a on \
+  -movflags +faststart out_av1_1500cap.mp4</pre></div>
+</div>
+<h2>5. 你给的那套参数：逐条实测</h2>
+<table>
+<tr><th>参数</th><th>实测结果</th><th>建议</th></tr>
+<tr><td><code>-c:v av1_qsv</code></td><td class='up'>可用</td><td>保留</td></tr>
+<tr><td><code>-preset veryslow</code></td><td class='flat'>生效（TU=1），但比 medium 只 +0.2 VMAF、慢 1.5~2.4×</td><td>建议 medium</td></tr>
+<tr><td><code>-global_quality xx</code></td><td class='down'>与 maxrate 同用时<b>失效</b>（Q25/30/35 输出 md5 相同）</td><td>二选一</td></tr>
+<tr><td><code>-maxrate / -bufsize</code></td><td class='down'>把 ICQ 切成 CQP，且 CQP 不限码率（1290 实测 5.75M &gt; 2M 上限）</td><td>改用 -b:v + -maxrate</td></tr>
+<tr><td><code>-pix_fmt p010le</code></td><td class='warn'>单独用报 Error reinitializing filters；需 hwdownload 链路</td><td>见修正写法</td></tr>
+<tr><td><code>-look_ahead 1</code></td><td class='down'>选项<b>不存在</b>（ffmpeg 报 has not been used）</td><td>应为 -look_ahead_depth</td></tr>
+<tr><td><code>-look_ahead_depth 60</code></td><td class='down'>ICQ 下无效；与 -b:v 组合必崩</td><td>不要用</td></tr>
+<tr><td><code>-adaptive_i 1 -adaptive_b 1</code></td><td class='flat'>ICQ 下空操作，VBR 下生效</td><td>仅码率模式保留</td></tr>
+<tr><td><code>-g 8x</code>（8 秒 GOP）</td><td class='up'>生效，与脚本默认一致</td><td>保留</td></tr>
+<tr><td><code>-bf 8</code></td><td class='down'>AV1 实测 0 个 B 帧（无效）；HEVC 上 bf≥4 后帧结构不再变化</td><td>HEVC 用 4~7，AV1 无意义</td></tr>
+</table>
+<h3>修正后的 10bit 写法（真正能跑通并产出 10bit）</h3>
+<pre>ffmpeg -hwaccel qsv -hwaccel_output_format qsv -i in.mp4 \
+  -map 0:v:0 -c:v hevc_qsv -preset veryslow \
+  -vf hwdownload,format=nv12,format=p010le -pix_fmt p010le \
+  -b:v 1250k -maxrate 1500k -bufsize 3000k -extbrc 1 -bf 7 -mbbrc 1 -rdo 1 \
+  -adaptive_i 1 -adaptive_b 1 -b_strategy 1 -p_strategy 1 -gpb 1 \
+  -g 176 -tag:v hvc1 -map 0:a:0? -c:a libopus -b:a 64k -vbr:a on \
+  -movflags +faststart out_hevc10_1500cap.mp4</pre>
+<h2>6. 证据：ICQ + maxrate 到底发生了什么</h2>
+<table>
+<tr><th>命令（1080 素材 45 秒片段）</th><th>速率控制模式</th><th>实测码率</th><th>输出 md5</th></tr>
+<tr><td>HEVC <code>-global_quality 25</code></td><td>ICQ</td><td>1797 kbps</td><td>c83c9eb490</td></tr>
+<tr><td>HEVC <code>-global_quality 35</code></td><td>ICQ</td><td>461 kbps</td><td>8d9b579980</td></tr>
+<tr><td>HEVC Q25 + <code>-maxrate 1500k</code></td><td class='down'>CQP</td><td>998 kbps</td><td class='down'>5e024777a8</td></tr>
+<tr><td>HEVC Q30 + <code>-maxrate 1500k</code></td><td class='down'>CQP</td><td>998 kbps</td><td class='down'>5e024777a8（同上）</td></tr>
+<tr><td>HEVC Q35 + <code>-maxrate 1500k</code></td><td class='down'>CQP</td><td>998 kbps</td><td class='down'>5e024777a8（同上）</td></tr>
+<tr><td>AV1 Q25/30/35 + <code>-maxrate 1500k</code></td><td class='down'>CQP</td><td>551 kbps</td><td class='down'>a6baf7d1c8（三者相同）</td></tr>
+</table>
+<div class='note'>整片验证（1290 素材，上限 2M）：ICQ+maxrate 实际跑出 HEVC <b>5754k</b> /
+AV1 <b>3613k</b> —— 上限形同虚设；对照脚本 VBR 上限模式 1667~1700k，稳稳咬住。</div>
+<h2>7. 四轮结论总览</h2>
+<table>
+<tr><th>轮次</th><th>问题</th><th>结论</th></tr>
+<tr><td>第一轮</td><td>medium 档 HEVC/AV1 × Q30/Q32</td>
+    <td>同 Q 下 HEVC 的 VMAF 高于 AV1 约 3 分、体积也更大；AV1 Q32 体积最小但画质垫底</td></tr>
+<tr><td>第二轮</td><td>medium vs veryslow；同码率谁更高</td>
+    <td>同 Q 下两者 VMAF 差 ±0.2（噪声级），veryslow 慢 1.5~2.4×；同码率下 veryslow 仅
+        +0.05~+0.54；同码率 HEVC 一直高于 AV1 0.2~0.8</td></tr>
+<tr><td>第三轮</td><td>进阶参数三档 + CQP vs ICQ</td>
+    <td>ICQ 下 extbrc/LAD/rdo/refs/adaptive_i/adaptive_b/b_strategy/low_power/transform_skip
+        全是空操作；保守档是负优化；VBR 同码率下激进档最好（HEVC +1.2~1.4）；
+        CQP 不优于 ICQ（ICQ 高 0.35~2.04）</td></tr>
+<tr><td>第四轮</td><td>码率上限方案、10bit 色带、你给的参数组</td>
+    <td>ICQ+maxrate 失效；限体积画质最高 = ICQ 迭代调 Q（比 VBR 上限高 +0.9~+4.9）；
+        封峰值 = VBR 上限+激进档；10bit 在本批素材无可测收益；AV1 不出 B 帧</td></tr>
+</table>
+</body></html>

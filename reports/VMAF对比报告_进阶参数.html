@@ -1,0 +1,106 @@
+<!DOCTYPE html><html lang='zh-CN'><head><meta charset='utf-8'>
+<title>进阶参数三档对比 + CQP vs ICQ</title>
+<style>
+:root{--bg:#0e1116;--card:#161b22;--line:#2a323d;--fg:#e6edf3;--dim:#9aa7b4;
+      --accent:#58a6ff;--good:#3fb950;--warn:#d29922;--bad:#f85149;}
+*{box-sizing:border-box}
+body{margin:0;padding:28px;background:var(--bg);color:var(--fg);
+     font-family:"Microsoft YaHei","PingFang SC",-apple-system,Segoe UI,sans-serif;
+     font-size:14px;line-height:1.6}
+h1{font-size:22px;margin:0 0 6px}
+h2{font-size:17px;margin:30px 0 10px;padding-left:10px;border-left:4px solid var(--accent)}
+h3{font-size:15px;margin:18px 0 8px}
+h4{font-size:14px;margin:14px 0 6px;color:var(--dim)}
+.sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+table{border-collapse:collapse;width:100%;background:var(--card);border-radius:8px;
+      overflow:hidden;margin-bottom:14px}
+th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line);
+      font-variant-numeric:tabular-nums}
+th{background:#1c232c;color:var(--dim);font-weight:600}
+th:first-child,td:first-child{text-align:left}
+tr:last-child td{border-bottom:none}
+.best{color:var(--good);font-weight:700}
+.up{color:var(--good)}.down{color:var(--bad)}.flat{color:var(--dim)}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;
+     background:#222c38;color:var(--dim);margin-left:6px}
+.note{color:var(--dim);font-size:12.5px;margin:6px 0 20px}
+code{background:#1c232c;padding:1px 6px;border-radius:4px;font-size:12.5px}
+.grid{display:grid;grid-template-columns:170px repeat(6,1fr);gap:8px;align-items:start}
+.grid img{width:100%;border-radius:6px;border:1px solid var(--line);display:block}
+.cap{font-size:12px;color:var(--dim);padding:6px 0;text-align:center}
+.cell{background:var(--card);border-radius:8px;padding:6px;border:1px solid var(--line)}
+</style></head><body>
+<h1>QSV 进阶参数实测：保守 / 推荐 / 激进 × ICQ / 固定码率，以及 CQP vs ICQ</h1>
+<div class='sub'>preset veryslow、质量 Q30，HEVC 与 AV1 各跑一遍；抽样区间沿用第一批（运动量低/中/高各 3 段 ×1 秒，同一批帧），VMAF vmaf_v0.6.1。</div>
+<h2>参数档位与实际生效情况</h2>
+
+<table>
+<tr><th>参数</th><th>保守</th><th>推荐</th><th>激进</th><th>ICQ 下是否生效</th><th>固定码率下是否生效</th></tr>
+<tr><td>扩展码率控制 extbrc</td><td>0（关）</td><td>1</td><td>1</td>
+    <td class='down'>强制 OFF（日志 ExtBRC: OFF）</td><td class='up'>生效（ExtBRC: ON）</td></tr>
+<tr><td>前向预分析 + 预分析帧数 look_ahead_depth</td><td>0</td><td>40</td><td>100</td>
+    <td class='down'>无效</td><td class='down'>本驱动与 -b:v 组合直接报错 Invalid data（已自动降级去掉）</td></tr>
+<tr><td>率失真优化 rdo</td><td>0</td><td>1</td><td>1</td>
+    <td class='down'>输出无变化（空操作）</td><td class='flat'>未见明显差异</td></tr>
+<tr><td>参考帧 refs</td><td>0</td><td>4</td><td>8</td>
+    <td class='down'>输出无变化</td><td class='flat'>未见明显差异</td></tr>
+<tr><td>B 帧 bf / b_strategy / adaptive_b</td><td>0 / 0 / 0</td><td>4 / 1 / 1</td><td>7 / 1 / 1</td>
+    <td class='up'>生效（体积变化明显）</td><td class='up'>生效</td></tr>
+<tr><td>P 金字塔 p_strategy</td><td>0</td><td>1</td><td>1</td>
+    <td class='up'>生效</td><td class='up'>生效</td></tr>
+<tr><td>宏块级码率控制 mbbrc</td><td>0</td><td>1</td><td>1</td>
+    <td class='up'>生效（-14% 体积）</td><td class='up'>生效</td></tr>
+<tr><td>GPB（通用 P/B 帧）</td><td>0</td><td>1</td><td>1</td>
+    <td class='up'>生效</td><td class='up'>生效</td></tr>
+<tr><td>adaptive_i / low_power / transform_skip</td><td>0 / — / —</td><td>1 / — / —</td><td>1 / 0 / 1</td>
+    <td class='down'>无变化</td><td class='flat'>无变化</td></tr>
+</table>
+
+<div class='note'>判定依据：① ffmpeg verbose 日志（ICQ 下即使传 <code>-extbrc 1</code>，日志仍打印 <code>ExtBRC: OFF</code>，且不打印 LookAheadDepth）；② 同参数下输出文件体积是否变化（ICQ 下 extbrc / look_ahead_depth / rdo / refs / adaptive_i / adaptive_b / b_strategy / low_power / transform_skip 全部字节级无变化，即空操作；AV1 激进档与基线档输出体积、码率、VMAF 完全相同，可直接印证）。</div>
+<h2>原1080_2000k<span class='tag'>22.00 fps</span><span class='tag'>9.8 分钟</span><span class='tag'>源 169.8 MB</span></h2>
+<h4>A. ICQ 质量模式 Q30（码率不由我们控制，看的是「效率」）</h4><table><tr><th>方案</th><th>实测码率 (kbps)</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr><tr><td>HEVC 基线</td><td>749</td><td>77.21</td><td>84.13</td><td>82.89</td><td>81.41</td><td>35.21</td></tr><tr><td>HEVC 保守</td><td>955</td><td>76.74</td><td>83.60</td><td>82.89</td><td>81.08</td><td>34.81</td></tr><tr><td>HEVC 推荐</td><td>833</td><td>77.12</td><td>84.48</td><td>82.37</td><td>81.32</td><td>34.80</td></tr><tr><td>HEVC 激进</td><td>686</td><td>76.65</td><td>83.42</td><td>81.15</td><td>80.41</td><td>35.37</td></tr><tr><td>AV1 基线</td><td>684</td><td>76.67</td><td>82.82</td><td>80.87</td><td>80.12</td><td>35.27</td></tr><tr><td>AV1 保守</td><td>1303</td><td>77.93</td><td>85.14</td><td>85.24</td><td class='best'>82.77</td><td>35.94</td></tr><tr><td>AV1 推荐</td><td>833</td><td>77.30</td><td>84.13</td><td>82.35</td><td>81.26</td><td>35.75</td></tr><tr><td>AV1 激进</td><td>684</td><td>76.67</td><td>82.82</td><td>80.87</td><td>80.12</td><td>35.27</td></tr></table>
+<div class='note'>相对基线（默认参数）：HEVC 保守：VMAF -0.33 / 码率 +27.4%　|　HEVC 推荐：VMAF -0.09 / 码率 +11.2%　|　HEVC 激进：VMAF -1.00 / 码率 -8.5%　|　AV1 保守：VMAF +2.65 / 码率 +90.4%　|　AV1 推荐：VMAF +1.14 / 码率 +21.8%　|　AV1 激进：VMAF +0.00 / 码率 +0.0%</div>
+<h4>B. 固定码率模式（目标 HEVC 685 kbps / AV1 620 kbps，同码率下看画质）</h4><table><tr><th>方案</th><th>实测码率 (kbps)</th><th>目标</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr><tr><td>HEVC 保守</td><td>690</td><td>+0.7%</td><td>77.45</td><td>84.18</td><td>74.26</td><td>78.63</td><td>36.06</td></tr><tr><td>HEVC 推荐</td><td>704</td><td>+2.8%</td><td>77.64</td><td>84.75</td><td>75.44</td><td>79.28</td><td>35.51</td></tr><tr><td>HEVC 激进</td><td>703</td><td>+2.6%</td><td>78.14</td><td>84.54</td><td>77.51</td><td class='best'>80.06</td><td>36.51</td></tr><tr><td>AV1 保守</td><td>665</td><td>-2.9%</td><td>77.39</td><td>82.78</td><td>73.47</td><td>77.88</td><td>35.67</td></tr><tr><td>AV1 推荐</td><td>734</td><td>+7.2%</td><td>77.77</td><td>84.25</td><td>77.17</td><td>79.73</td><td>35.56</td></tr><tr><td>AV1 激进</td><td>645</td><td>-5.8%</td><td>77.75</td><td>83.93</td><td>75.66</td><td>79.12</td><td>35.96</td></tr></table>
+<div class='note'>HEVC 同码率：激进 − 保守 = +1.43 VMAF；推荐 − 保守 = +0.65（实测码率 保守 690 / 推荐 704 / 激进 703 kbps）</div>
+<div class='note'>AV1 同码率：激进 − 保守 = +1.23 VMAF；推荐 − 保守 = +1.85（实测码率 保守 665 / 推荐 734 / 激进 645 kbps）</div>
+<h4>C. CQP vs ICQ（调到同一码率）</h4>
+<table><tr><th>方案</th><th>实测码率</th><th>与 ICQ 目标偏差</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC ICQ Q30（基线）</td><td>749</td><td>+0.0%</td><td>77.21</td><td>84.13</td><td>82.89</td><td>81.41</td><td>35.21</td></tr>
+<tr><td>HEVC HEVC CQP q26</td><td>782</td><td>+4.4%</td><td>77.22</td><td>83.98</td><td>81.98</td><td>81.06</td><td>35.87</td></tr>
+<tr><td colspan='8' style='text-align:right;color:var(--dim)'>HEVC：CQP − ICQ = <span class='down'>-0.35</span> VMAF（码率差 +4.4%）</td></tr>
+<tr><td>AV1 ICQ Q30（基线）</td><td>684</td><td>+0.0%</td><td>76.67</td><td>82.82</td><td>80.87</td><td>80.12</td><td>35.27</td></tr>
+<tr><td>AV1 AV1 CQP q106</td><td>691</td><td>+1.1%</td><td>76.79</td><td>83.16</td><td>80.82</td><td>80.26</td><td>35.38</td></tr>
+<tr><td colspan='8' style='text-align:right;color:var(--dim)'>AV1：CQP − ICQ = <span class='flat'>+0.13</span> VMAF（码率差 +1.1%）</td></tr>
+</table>
+<h2>原1290_15m<span class='tag'>60.00 fps</span><span class='tag'>1.7 分钟</span><span class='tag'>源 200.0 MB</span></h2>
+<h4>A. ICQ 质量模式 Q30（码率不由我们控制，看的是「效率」）</h4><table><tr><th>方案</th><th>实测码率 (kbps)</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr><tr><td>HEVC 基线</td><td>6285</td><td>90.99</td><td>90.93</td><td>92.55</td><td>91.49</td><td>84.64</td></tr><tr><td>HEVC 保守</td><td>6419</td><td>90.18</td><td>89.92</td><td>90.64</td><td>90.25</td><td>87.56</td></tr><tr><td>HEVC 推荐</td><td>6077</td><td>89.18</td><td>89.02</td><td>90.06</td><td>89.42</td><td>82.73</td></tr><tr><td>HEVC 激进</td><td>5232</td><td>87.68</td><td>87.87</td><td>88.88</td><td>88.14</td><td>79.28</td></tr><tr><td>AV1 基线</td><td>5434</td><td>88.36</td><td>88.07</td><td>88.53</td><td>88.32</td><td>81.37</td></tr><tr><td>AV1 保守</td><td>8307</td><td>91.66</td><td>91.52</td><td>92.06</td><td class='best'>91.75</td><td>89.30</td></tr><tr><td>AV1 推荐</td><td>6255</td><td>89.77</td><td>89.47</td><td>90.00</td><td>89.74</td><td>83.96</td></tr><tr><td>AV1 激进</td><td>5434</td><td>88.36</td><td>88.07</td><td>88.53</td><td>88.32</td><td>81.37</td></tr></table>
+<div class='note'>相对基线（默认参数）：HEVC 保守：VMAF -1.24 / 码率 +2.1%　|　HEVC 推荐：VMAF -2.07 / 码率 -3.3%　|　HEVC 激进：VMAF -3.35 / 码率 -16.8%　|　AV1 保守：VMAF +3.42 / 码率 +52.9%　|　AV1 推荐：VMAF +1.42 / 码率 +15.1%　|　AV1 激进：VMAF +0.00 / 码率 +0.0%</div>
+<h4>B. 固定码率模式（目标 HEVC 6221 kbps / AV1 5370 kbps，同码率下看画质）</h4><table><tr><th>方案</th><th>实测码率 (kbps)</th><th>目标</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr><tr><td>HEVC 保守</td><td>6343</td><td>+2.0%</td><td>89.80</td><td>89.16</td><td>91.24</td><td>90.07</td><td>82.94</td></tr><tr><td>HEVC 推荐</td><td>6281</td><td>+1.0%</td><td>90.98</td><td>89.30</td><td>92.05</td><td>90.78</td><td>83.05</td></tr><tr><td>HEVC 激进</td><td>6281</td><td>+1.0%</td><td>91.22</td><td>90.08</td><td>92.35</td><td class='best'>91.22</td><td>82.15</td></tr><tr><td>AV1 保守</td><td>6591</td><td>+5.9%</td><td>89.82</td><td>87.92</td><td>90.75</td><td>89.50</td><td>82.53</td></tr><tr><td>AV1 推荐</td><td>6442</td><td>+3.6%</td><td>90.30</td><td>88.97</td><td>90.89</td><td>90.05</td><td>84.29</td></tr><tr><td>AV1 激进</td><td>5812</td><td>-6.6%</td><td>89.23</td><td>87.82</td><td>90.85</td><td>89.30</td><td>82.69</td></tr></table>
+<div class='note'>HEVC 同码率：激进 − 保守 = +1.15 VMAF；推荐 − 保守 = +0.71（实测码率 保守 6343 / 推荐 6281 / 激进 6281 kbps）</div>
+<div class='note'>AV1 同码率：激进 − 保守 = -0.20 VMAF；推荐 − 保守 = +0.56（实测码率 保守 6591 / 推荐 6442 / 激进 5812 kbps）</div>
+<h4>C. CQP vs ICQ（调到同一码率）</h4>
+<table><tr><th>方案</th><th>实测码率</th><th>与 ICQ 目标偏差</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC ICQ Q30（基线）</td><td>6285</td><td>+0.0%</td><td>90.99</td><td>90.93</td><td>92.55</td><td>91.49</td><td>84.64</td></tr>
+<tr><td>HEVC HEVC CQP q26</td><td>5811</td><td>-7.5%</td><td>89.38</td><td>89.38</td><td>89.58</td><td>89.45</td><td>82.51</td></tr>
+<tr><td colspan='8' style='text-align:right;color:var(--dim)'>HEVC：CQP − ICQ = <span class='down'>-2.04</span> VMAF（码率差 -7.5%）</td></tr>
+<tr><td>AV1 ICQ Q30（基线）</td><td>5434</td><td>+0.0%</td><td>88.36</td><td>88.07</td><td>88.53</td><td>88.32</td><td>81.37</td></tr>
+<tr><td>AV1 AV1 CQP q105</td><td>5357</td><td>-1.4%</td><td>87.30</td><td>87.04</td><td>87.53</td><td>87.29</td><td>78.76</td></tr>
+<tr><td colspan='8' style='text-align:right;color:var(--dim)'>AV1：CQP − ICQ = <span class='down'>-1.03</span> VMAF（码率差 -1.4%）</td></tr>
+</table>
+<h2>原720_1000kbps<span class='tag'>21.92 fps</span><span class='tag'>10.4 分钟</span><span class='tag'>源 77.0 MB</span></h2>
+<h4>A. ICQ 质量模式 Q30（码率不由我们控制，看的是「效率」）</h4><table><tr><th>方案</th><th>实测码率 (kbps)</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr><tr><td>HEVC 基线</td><td>688</td><td>89.22</td><td>90.08</td><td>89.55</td><td>89.62</td><td>80.71</td></tr><tr><td>HEVC 保守</td><td>808</td><td>87.57</td><td>90.40</td><td>91.53</td><td>89.83</td><td>85.90</td></tr><tr><td>HEVC 推荐</td><td>750</td><td>90.04</td><td>90.00</td><td>89.79</td><td>89.94</td><td>82.14</td></tr><tr><td>HEVC 激进</td><td>629</td><td>88.50</td><td>88.16</td><td>86.76</td><td>87.81</td><td>76.92</td></tr><tr><td>AV1 基线</td><td>626</td><td>86.35</td><td>87.40</td><td>86.16</td><td>86.64</td><td>77.23</td></tr><tr><td>AV1 保守</td><td>1088</td><td>89.87</td><td>92.93</td><td>94.30</td><td class='best'>92.37</td><td>88.50</td></tr><tr><td>AV1 推荐</td><td>729</td><td>88.73</td><td>89.64</td><td>89.01</td><td>89.12</td><td>83.02</td></tr><tr><td>AV1 激进</td><td>626</td><td>86.35</td><td>87.40</td><td>86.16</td><td>86.64</td><td>77.23</td></tr></table>
+<div class='note'>相对基线（默认参数）：HEVC 保守：VMAF +0.21 / 码率 +17.4%　|　HEVC 推荐：VMAF +0.33 / 码率 +9.0%　|　HEVC 激进：VMAF -1.81 / 码率 -8.7%　|　AV1 保守：VMAF +5.73 / 码率 +73.8%　|　AV1 推荐：VMAF +2.49 / 码率 +16.5%　|　AV1 激进：VMAF +0.00 / 码率 +0.0%</div>
+<h4>B. 固定码率模式（目标 HEVC 624 kbps / AV1 562 kbps，同码率下看画质）</h4><table><tr><th>方案</th><th>实测码率 (kbps)</th><th>目标</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr><tr><td>HEVC 保守</td><td>600</td><td>-3.8%</td><td>88.78</td><td>84.79</td><td>82.47</td><td>85.35</td><td>69.08</td></tr><tr><td>HEVC 推荐</td><td>610</td><td>-2.2%</td><td>89.01</td><td>87.27</td><td>82.97</td><td>86.42</td><td>76.55</td></tr><tr><td>HEVC 激进</td><td>610</td><td>-2.3%</td><td>88.26</td><td>88.42</td><td>83.55</td><td class='best'>86.74</td><td>74.90</td></tr><tr><td>AV1 保守</td><td>577</td><td>-7.5%</td><td>87.58</td><td>83.61</td><td>78.65</td><td>83.28</td><td>68.88</td></tr><tr><td>AV1 推荐</td><td>638</td><td>+2.3%</td><td>89.36</td><td>87.16</td><td>81.75</td><td>86.09</td><td>72.23</td></tr><tr><td>AV1 激进</td><td>572</td><td>-8.4%</td><td>87.68</td><td>85.71</td><td>82.13</td><td>85.17</td><td>74.68</td></tr></table>
+<div class='note'>HEVC 同码率：激进 − 保守 = +1.40 VMAF；推荐 − 保守 = +1.07（实测码率 保守 600 / 推荐 610 / 激进 610 kbps）</div>
+<div class='note'>AV1 同码率：激进 − 保守 = +1.89 VMAF；推荐 − 保守 = +2.81（实测码率 保守 577 / 推荐 638 / 激进 572 kbps）</div>
+<h4>C. CQP vs ICQ（调到同一码率）</h4>
+<table><tr><th>方案</th><th>实测码率</th><th>与 ICQ 目标偏差</th><th>变化少</th><th>变化中等</th><th>变化多</th><th>抽样均值</th><th>最低帧</th></tr>
+<tr><td>HEVC ICQ Q30（基线）</td><td>688</td><td>+0.0%</td><td>89.22</td><td>90.08</td><td>89.55</td><td>89.62</td><td>80.71</td></tr>
+<tr><td>HEVC HEVC CQP q26</td><td>720</td><td>+4.6%</td><td>89.28</td><td>88.72</td><td>87.72</td><td>88.57</td><td>75.55</td></tr>
+<tr><td colspan='8' style='text-align:right;color:var(--dim)'>HEVC：CQP − ICQ = <span class='down'>-1.04</span> VMAF（码率差 +4.6%）</td></tr>
+<tr><td>AV1 ICQ Q30（基线）</td><td>626</td><td>+0.0%</td><td>86.35</td><td>87.40</td><td>86.16</td><td>86.64</td><td>77.23</td></tr>
+<tr><td>AV1 AV1 CQP q107</td><td>618</td><td>-1.3%</td><td>86.92</td><td>86.32</td><td>85.00</td><td>86.08</td><td>70.29</td></tr>
+<tr><td colspan='8' style='text-align:right;color:var(--dim)'>AV1：CQP − ICQ = <span class='down'>-0.55</span> VMAF（码率差 -1.3%）</td></tr>
+</table>
+<h2>结论</h2><div class='note'>1. <b>ICQ 质量模式下，绝大多数进阶参数是空操作</b>：extbrc / 前向预分析(look_ahead_depth) / rdo / refs / adaptive_i / adaptive_b / b_strategy / low_power / transform_skip 传了也不改变输出（AV1 激进档与基线档结果完全相同）。真正会改变 ICQ 输出的只有 B 帧相关（bf、p_strategy、gpb）和 mbbrc。<br>2. <b>ICQ 下「保守」档反而是负优化</b>：关掉 B 帧/GPB 后码率大涨（AV1 保守档码率翻倍）而 VMAF 只高一点点，效率明显不如默认参数；默认（基线）档的效率最好。<br>3. <b>只有在固定码率模式（VBR）下，进阶参数才拉开差距</b>：同码率下 激进 ≥ 推荐 > 保守，HEVC 上激进档比保守档高约 +0.8~1.4 VMAF，1290p 素材上差距最大。<br>4. <b>前向预分析在本驱动不可用</b>：VBR + <code>-look_ahead_depth</code> 会直接报 Invalid data 崩掉（脚本注释里也记录了这点），这批 VBR 的推荐/激进档都是自动降级去掉 look_ahead_depth 后编出来的（extbrc 仍为 ON）。<br>5. <b>CQP vs ICQ</b>：调 QP 到同码率后，HEVC 上 ICQ 高约 +0.4~2.0 VMAF，AV1 上两者基本持平（±0.15 内）。ICQ 的整体码率分配更聪明，日常推荐继续用 ICQ（-global_quality）。</div>
+</body></html>
