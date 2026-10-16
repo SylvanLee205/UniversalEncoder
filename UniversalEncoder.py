@@ -1843,7 +1843,7 @@ def _apply_source_metadata(encoded: Path, source: Path) -> bool:
     if rot:
         cmd += ["-display_rotation:v:0", str(rot)]
     cmd += ["-i", str(encoded), "-map", "0", "-c", "copy",
-            "-movflags", "+use_metadata_tags"] + args + [str(tmp)]
+            "-movflags", "+use_metadata_tags+faststart"] + args + [str(tmp)]
     if run_command(cmd, timeout=1800).returncode == 0 and tmp.exists() and tmp.stat().st_size > 1024:
         shutil.move(str(tmp), str(encoded))
         return True
@@ -1941,7 +1941,7 @@ def preserve_dolby_vision(encoded: Path, source: Path, quality: int = 0) -> bool
             _remux += ["-display_rotation:v:0", str(_rot)]
         _remux += ["-i", str(dv_es), "-i", str(encoded), "-map", "0:v:0", "-map", "1:a:0?",
                    "-c", "copy", "-tag:v", "hvc1", "-strict", "unofficial",
-                   "-movflags", "+use_metadata_tags"]
+                   "-movflags", "+use_metadata_tags+faststart"]
         _remux += _source_meta_args(source)
         _remux.append(str(fixed))
         if run_command(_remux, timeout=900).returncode != 0:
@@ -2827,7 +2827,7 @@ def _encode_iterative(worker, base_args, plan, duration, cap_kbps, codec_key,
                      getattr(info, "height", 0) or 0, getattr(info, "fps", 0) or 0,
                      cap_kbps * 1000.0 / _px))
             _run_log("[%s] %s" % (time.strftime("%H:%M:%S"), _m))
-            _run_log(str("   " + dim(_m), flush=True))
+            _run_log(str("   " + dim(_m)))
             return worker(*base_args, plan)
     result = worker(*base_args, plan)
     if not cap_kbps or result.status == "failed":
@@ -2857,7 +2857,7 @@ def _encode_iterative(worker, base_args, plan, duration, cap_kbps, codec_key,
                     plan.quality, new_q))
         _notice = ("[超标重压] 实测 %d kbps 超过上限 %d kbps，Q %d → %d（重新压一遍）"
                    % (int(kbps), int(cap_kbps), plan.quality, new_q))
-        _run_log(str("   " + dim(_notice), flush=True))
+        _run_log(str("   " + dim(_notice)))
         retry_plan = EncodePlan(mode=RC_MODE_QUALITY, quality=new_q)
         retry_plan.cap_kbps = cap_kbps
         retry_plan.predicted_kbps = plan.predicted_kbps
@@ -5383,6 +5383,8 @@ def main(start_step: int = 1) -> int:
           f"{dim(' ・ ' + decode_label_for(platform_key))}"
           f"{dim(' ・ GOP ' + f'{GOP_SECONDS:g}秒')}"
           f"{dim(' ・ ' + ('安全 output/' if output_mode == 'safe' else '原地替换'))}")
+    print(f"   {dim('封装')}      {color('+faststart ✓（moov 前置，iOS 拖动更快）', 'green')}"
+          f"{dim(' ・ 版本 ' + 'v81')}")
     if capped_files and quality_files:
         print(f"   {dim('本批')}      {len(candidates)} 个文件："
               f"{color(f'{capped_files} 个上限模式', 'yellow')} · "
