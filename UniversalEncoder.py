@@ -159,6 +159,28 @@ OUTPUT_DIR_NAME = "output"
 # 临时文件标记
 TEMP_MARKER = ".temp."
 
+# ------------------------------------------------------------
+# 输出容器（v85）
+# ------------------------------------------------------------
+# 默认 MP4：兼容性最好（Apple 相册 / 安卓 / Windows 直接播），也是 v84 起
+# 原地替换的既有行为。MKV 适合多音轨/字幕/章节归档；MOV 是 Apple 生态容器，
+# 但**不支持 Opus 音频**，选 MOV 时音频一律换成 AAC。
+CONTAINER_MP4 = "mp4"
+CONTAINER_MKV = "mkv"
+CONTAINER_MOV = "mov"
+CONTAINER_SOURCE = "source"          # 跟随源：保持源扩展名（旧行为）
+OUTPUT_CONTAINER = CONTAINER_MP4     # 由【13 输出容器】写入，编码线程只读
+
+CONTAINER_LABELS = {
+    CONTAINER_MP4: "MP4",
+    CONTAINER_MKV: "MKV",
+    CONTAINER_MOV: "MOV",
+    CONTAINER_SOURCE: "跟随源",
+}
+
+# 程序版本（编码信息面板显示用；改代码就同步改这里）
+APP_VERSION = "v85"
+
 # FFmpeg 进度里的 out_time 多久不前进就判定卡死。
 # 注意：不能用“有没有输出行”判断——ffmpeg 即使一帧都没编出来，也会持续
 # 输出 -progress 行，那样看门狗永远不会触发（旧版正是这样挂死的）。
@@ -313,7 +335,7 @@ GOP_AUTO = True
 PLATFORM_STATE = {"key": "intel"}   # 当前平台（供 DV 保留路径取编码器/解码链）                    # 自适应：相机/10bit/4K → 1 秒；其余 → GOP_SECONDS
 
 # 音频质量完全独立于视频质量。
-# 使用 Opus VBR，实际平均码率会因内容而略有波动。默认 64k。
+# 使用 Opus VBR，实际平均码率会因内容而略有波动。默认 96k。
 AUDIO_BITRATES = {
     128: "128k",
     96: "96k",
@@ -1328,12 +1350,34 @@ QUALITY_FLOOR_CHOICES = [34, 36, 38]
 
 
 def ask_advanced() -> str:
-    """高级设置开关：默认不显示（质量地板 / 杜比视界都属于此）。"""
+    """高级设置开关：默认不显示（输出容器 / 质量地板 / 杜比视界都属于此）。"""
     rows = [
         ("1", "不显示（默认）", "只用上面 11 项即可，绝大多数情况够用"),
-        ("2", "显示高级设置", "额外出现：质量地板、杜比视界（实验性）"),
+        ("2", "显示高级设置", "额外出现：输出容器、质量地板、杜比视界（实验性）"),
     ]
     return ask_choice("【12. 高级设置】", rows, default="1", default_label="不显示")
+
+
+def ask_container() -> str:
+    rows = [
+        ("1", "MP4（默认）", "兼容性最好：Apple 相册 / 安卓 / Windows 都能直接播"),
+        ("2", "MKV", "多音轨 / 字幕 / 章节归档友好；Apple 相册不认"),
+        ("3", "MOV", "Apple 生态容器；不支持 Opus → 音频自动改用 AAC"),
+        ("4", "跟随源", "保持源扩展名（旧行为；ts / avi 等仍回落 MP4）"),
+    ]
+    return ask_choice("【13. 输出容器】", rows, default="1", default_label="MP4")
+
+
+def apply_container_choice(mode: str) -> None:
+    """把选择写进 OUTPUT_CONTAINER（输出路径 / 音频编码 / 封装参数运行时读取）。"""
+    global OUTPUT_CONTAINER
+    OUTPUT_CONTAINER = {
+        "1": CONTAINER_MP4,
+        "2": CONTAINER_MKV,
+        "3": CONTAINER_MOV,
+        "4": CONTAINER_SOURCE,
+    }.get(mode, CONTAINER_MP4)
+    print("   输出容器 = %s" % container_label())
 
 
 def ask_quality_floor() -> str:
@@ -1634,7 +1678,7 @@ def quote_for_display(path: Path) -> str:
 
 def run_command(
     args: list[str],
-    timeout: Optional[int] = None,
+    timeout: Optional[int] = 7200,   # 默认 2 小时上限，避免无超时调用把程序挂死
     capture_output: bool = True,
     cwd: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
@@ -1958,7 +2002,12 @@ def preserve_dolby_vision(encoded: Path, source: Path, quality: int = 0) -> bool
     except Exception:
         return False
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        # 只删自己建的 _dv_ 临时目录，防止任何路径意外导致误删
+        try:
+            if str(work.name).startswith("_dv_"):
+                shutil.rmtree(work, ignore_errors=True)
+        except Exception:
+            pass
 
 
 def ask_dolby_vision() -> str:
@@ -2085,9 +2134,6 @@ def dim(text: str) -> str:
 # 统一的界面层级：标题=青色，提示=黄色，成功=绿色，错误=红色，
 # 次要信息=暗色。所有界面都走这几个函数，避免"满屏白字"。
 # ------------------------------------------------------------
-
-RULE = "─" * 84
-RULE_HEAVY = "═" * 84
 
 
 def term_width(default: int = 100) -> int:
@@ -2652,6 +2698,9 @@ def _log_result(result, tag: str = "") -> None:
         _run_log(f"[{stamp}] [{result.index:03d}] 失败 {tag} {result.source}")
         for ln in (result.error or "").splitlines()[:8]:
             _run_log("            " + ln)
+    elif result.status == "skipped":
+        _run_log(f"[{stamp}] [{result.index:03d}] 跳过 {tag} {result.source}"
+                 f"  {(result.message or '').strip()}")
     else:
         o = getattr(result, "original_info", None)
         n = getattr(result, "output_info", None)
@@ -2698,12 +2747,14 @@ def _ask(step: int, start_step: int, fn, *args, **kwargs):
 
 ICQ_CAP_MODE = True             # 上限模式 = ICQ + 按需调 Q（False 则退回旧的 VBR 硬封）
 ICQ_CAP_MAX_REFITS = 2           # 最多反解几次（每次 = 重压一遍全片）
-ICQ_CAP_TOLERANCE = 1.05         # 实测码率超过天花板 ×1.08 才算超标
+ICQ_CAP_TOLERANCE = 1.05         # 反解触发线：实测码率超过天花板 ×1.05 就去反解 Q
 ICQ_QUALITY_FLOOR = 0             # >0 时：Q 不允许被抬过该值（宁可码率超上限）
 # 为什么不是 1.00：Q 是整数档位，每 ±1 档码率就 ±12%（HEVC 实测斜率 0.114~0.122），
 # 而"既不超过预算、又不浪费预算"的窗口只有 ±6%——比 Q 的粒度还窄。
 # 硬卡 1.02 会让 1290 素材多压一遍（Q40 实测 2070k 只超 3.5%，却要退到 Q41 的 1814k，
-# 白丢一档画质）。放宽到 1.08：一步命中，落点更贴近预算，画质反而更好。
+# 白丢一档画质）。放宽到 1.05：一步命中，落点更贴近预算，画质反而更好。
+# 注：v82 起常量收紧为 1.05（原注释误留 1.08）；「承诺-行为自检①」按更松的 1.08 判，
+# 执行线比承诺线紧一档，才不会因为一次反解没压住就天天报红。
 ICQ_SLOPE = {"hevc": 0.125, "av1": 0.140}   # ln(码率) 对 Q 的斜率（实测标定）
 
 # ---- 一枪命中：同规格素材的 Q 记忆 ----
@@ -2822,13 +2873,12 @@ def _encode_iterative(worker, base_args, plan, duration, cap_kbps, codec_key,
             * (getattr(info, "fps", 0) or 0)
         if _px > 0 and (cap_kbps * 1000.0 / _px) < 0.012:
             _m = ("上限 %d kbps 对 %dx%d@%.0ffps 只有 bpp %.3f（自然影像需 0.02~0.03）；"
-                  "已跳过反解、只压一遍。建议把【7 上限】选大或选「不限制」"
+                  "仍会反解压向上限（最多 2 轮），但画质会明显下降；要画质请把【7 上限】选大或选「不限制」"
                   % (int(cap_kbps), getattr(info, "width", 0) or 0,
                      getattr(info, "height", 0) or 0, getattr(info, "fps", 0) or 0,
                      cap_kbps * 1000.0 / _px))
             _run_log("[%s] %s" % (time.strftime("%H:%M:%S"), _m))
             _run_log(str("   " + dim(_m)))
-            return worker(*base_args, plan)
     result = worker(*base_args, plan)
     if not cap_kbps or result.status == "failed":
         return result
@@ -3032,6 +3082,31 @@ def scan_videos(root: Path, recursive: bool) -> list[Path]:
     return videos
 
 
+CONTAINER_MUXERS = (CONTAINER_MP4, CONTAINER_MKV, CONTAINER_MOV)
+
+
+def resolve_container(source: Path) -> str:
+    """把 OUTPUT_CONTAINER 解析成本次实际使用的容器扩展名（不带点）。
+
+    "跟随源"只跟 MP4/MKV/MOV 三种：ts/avi/flv/webm 这类源容器不适合归档
+    （时间戳/索引规则各不相同），统一回落到 MP4，避免出现"扩展名是 ts、
+    内容却是 HEVC"的假文件。
+    """
+    if OUTPUT_CONTAINER == CONTAINER_SOURCE:
+        ext = source.suffix.lower().lstrip(".")
+        return ext if ext in CONTAINER_MUXERS else CONTAINER_MP4
+    return OUTPUT_CONTAINER if OUTPUT_CONTAINER in CONTAINER_MUXERS else CONTAINER_MP4
+
+
+def output_suffix(source: Path) -> str:
+    """输出文件的扩展名（带点），由【13 输出容器】决定。"""
+    return "." + resolve_container(source)
+
+
+def container_label() -> str:
+    return CONTAINER_LABELS.get(OUTPUT_CONTAINER, "MP4")
+
+
 def get_output_path(
     source: Path,
     root: Path,
@@ -3045,15 +3120,17 @@ def get_output_path(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 统一输出为 MP4。
-    # 使用原 stem，方便归档后直观看到对应关系。
-    return output_dir / f"{source.stem}.mp4"
+    # 容器由【13 输出容器】决定（默认 MP4）；使用原 stem，方便归档后对应关系直观。
+    return output_dir / f"{source.stem}{output_suffix(source)}"
 
 
 def get_temp_path(source_or_output: Path) -> Path:
     # 保留完整原文件名（含扩展名），a.mkv 与 a.mp4 的临时文件不会重名。
+    # 临时文件必须与正式输出同容器：ffmpeg 按**扩展名**选封装器，
+    # 写成 .temp.mp4 却要产出 MKV 会静默变成 MP4（v84 只解决了一半）。
+    ext = source_or_output.suffix.lstrip(".") or CONTAINER_MP4
     return source_or_output.with_name(
-        source_or_output.name + TEMP_MARKER + "mp4"
+        source_or_output.name + TEMP_MARKER + ext
     )
 
 
@@ -3219,8 +3296,8 @@ def ask_audio_quality() -> int:
     print()
 
     labels = {
-        96: "高质量",
-        64: "推荐",
+        96: "高质量（默认）推荐",
+        64: "",
         48: "均衡",
         40: "高压缩 / 极限省空间",
     }
@@ -3354,6 +3431,12 @@ class EncodePlan:
 def plan_label(plan: EncodePlan) -> str:
     if plan.is_capped:
         return f"上限 {format_cap(plan.cap_kbps or 0)}"
+    # 设了上限但没被触发时，把"为什么没封顶"写出来，避免看起来像上限失效
+    # （v70 的静默跳过事故就是靠这种文案才容易被发现）。
+    cap = VIDEO_BITRATE_CAP_KBPS
+    predicted = plan.predicted_kbps
+    if cap and predicted:
+        return f"质量优先（预估 {format_cap(predicted)} < 上限 {format_cap(cap)}）"
     return "质量优先"
 
 
@@ -3652,6 +3735,9 @@ def build_ffmpeg_command(
     encoder = encoder_name(platform_key, codec_key)
     caps = ENCODER_CAPABILITIES.get(encoder, EncoderCapabilities(encoder))
     audio_bitrate = AUDIO_BITRATES[audio_quality]
+    # 容器由**输出路径的扩展名**决定（调用方已经把容器写进扩展名）。
+    # 临时文件与正式输出同扩展名，所以这里看 output 就够了。
+    container = output.suffix.lower().lstrip(".") or CONTAINER_MP4
     # 自适应：高难度素材（相机/10bit/4K）用 1 秒，其余用 GOP_SECONDS(默认 2 秒)
     # 注意：不能「不设 -g」——编码器默认 GOP 约 4 秒，手机上拖动会卡成 PPT（实测）
     _auto_high = bool(getattr(info, "is_10bit", False)
@@ -3710,7 +3796,10 @@ def build_ffmpeg_command(
         if codec_key == "hevc" and info.is_10bit and caps.has("profile"):
             args += ["-profile:v", "main10"]
 
-        args += ["-tag:v", "av01" if codec_key == "av1" else "hvc1"]
+        if container != CONTAINER_MKV:
+            # hvc1/av01 是 ISO-BMFF（MP4/MOV）的 sample entry 名；Matroska 自己写
+            # V_MPEGH/ISO/HEVC，硬塞 hvc1 反而会让部分播放器认不出轨道。
+            args += ["-tag:v", "av01" if codec_key == "av1" else "hvc1"]
 
     else:
         settings = dict(platform["settings"])
@@ -3787,11 +3876,18 @@ def build_ffmpeg_command(
         if info.is_10bit and caps.has("profile"):
             args += ["-profile:v", "main10", "-pix_fmt", "p010le"]
 
-        args += ["-tag:v", "hvc1" if codec_key == "hevc" else "av01"]
+        if container != CONTAINER_MKV:
+            args += ["-tag:v", "hvc1" if codec_key == "hevc" else "av01"]
 
     if info.audio_codec != "none" and not video_only:
         source_audio_kbps = int(info.audio_bitrate / 1000) if info.audio_bitrate else 0
-        if (
+        if container == CONTAINER_MOV:
+            # MOV 容器不支持 Opus（v84 实测：ffmpeg 直接报
+            # "opus only supported in MP4"，整片失败）→ 选 MOV 时音频强制 AAC，
+            # 也不再走 copy（源音频编码在这里不可控）。
+            args += ["-c:a", "aac", "-b:a", audio_bitrate,
+                     "-ac", str(output_audio_channels(info))]
+        elif (
             info.audio_codec.lower() == "opus"
             and 0 < source_audio_kbps <= int(audio_quality * AUDIO_COPY_TOLERANCE)
         ):
@@ -3805,8 +3901,11 @@ def build_ffmpeg_command(
             args += ["-c:a", "libopus", "-b:a", audio_bitrate, "-vbr:a", "on",
                  "-ac", str(output_audio_channels(info))]   # 保留 vbr(显式可见) 与 -ac(防多声道摊薄码率)
 
+    if container != CONTAINER_MKV:
+        # matroska 封装器没有 movflags 这个私有选项，传了会直接失败
+        # （"Option movflags not found"）；MP4/MOV 才需要 faststart 把 moov 前置。
+        args += ["-movflags", "+faststart"]
     args += [
-        "-movflags", "+faststart",
         "-progress", "pipe:1",
         "-nostats",
         str(output),
@@ -4294,6 +4393,116 @@ def validate_output(
 
 
 # ============================================================
+# 「承诺-行为」自检（v85）
+# ============================================================
+# 为什么需要：v70 的"像素率兜底"曾静默跳过上限反解，而 compile / 静态扫描
+# 全都发现不了——只有实跑才暴露。所以每片编完就用**产物自己的属性**反查
+# "面板上承诺的事"到底有没有做到。这些检查只用一次 ffprobe（读关键帧）+ 读文件头。
+SELFCHECK_CAP_RATIO = 1.08        # ① 上限：产物视频码率 ≤ 上限 × 1.08
+SELFCHECK_GOP_RANGE = (0.8, 2.6)  # ③ 自适应 GOP：实际关键帧间隔应落在这个区间
+SELFCHECK_AUDIO_TOLERANCE = 0.20      # ⑤ 音频：低于设定 20% = 降配，报警
+SELFCHECK_AUDIO_OVER_TOLERANCE = 0.50 # ⑤ 音频：高于设定 50% = 异常膨胀才报警
+
+
+def _keyframe_interval(path: Path) -> float:
+    """只读关键帧，返回中位关键帧间隔（秒）；取不到返回 0。"""
+    try:
+        cp = run_command([
+            ffprobe_exe(), "-v", "error", "-select_streams", "v:0",
+            "-skip_frame", "nokey",
+            "-show_entries", "frame=pts_time",
+            "-of", "csv=p=0", str(path),
+        ], timeout=120)
+        times: list[float] = []
+        for line in (cp.stdout or "").splitlines():
+            try:
+                times.append(float(line.strip().rstrip(",")))
+            except ValueError:
+                continue
+        diffs = [b - a for a, b in zip(times, times[1:]) if b > a]
+        if not diffs:
+            return 0.0
+        diffs.sort()
+        return diffs[len(diffs) // 2]
+    except Exception:
+        return 0.0
+
+
+def _moov_is_front(path: Path) -> Optional[bool]:
+    """产物头部 moov 是否在 mdat 之前（= faststart 真的生效）。"""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(4096)
+    except Exception:
+        return None
+    if b"moov" not in head:
+        return False
+    pos_moov = head.find(b"moov")
+    pos_mdat = head.find(b"mdat")
+    if pos_mdat < 0:
+        return True
+    return pos_moov < pos_mdat
+
+
+def check_promises(result: "Result", audio_quality: int) -> list[str]:
+    """核对"面板承诺 ↔ 产物实况"；返回不符合项（空列表 = 全通过）。"""
+    problems: list[str] = []
+    info = result.output_info
+    plan = result.plan
+    if info is None:
+        return problems
+    path = Path(result.output)
+    if not path.exists():
+        return problems
+    suffix = path.suffix.lower()
+
+    # ① 上限：只在"真的按上限编码"的文件上检查（质量模式没有封顶承诺）
+    if plan is not None and plan.is_capped and plan.cap_kbps:
+        actual_kbps = (info.video_bitrate or 0) / 1000.0
+        if actual_kbps and actual_kbps > plan.cap_kbps * SELFCHECK_CAP_RATIO:
+            problems.append(
+                f"上限未达成：{actual_kbps:.0f}k > {plan.cap_kbps}k×{SELFCHECK_CAP_RATIO:g}")
+
+    # ② 质量地板：反解后的 Q 不允许被抬过地板
+    if ICQ_QUALITY_FLOOR and plan is not None and plan.quality > ICQ_QUALITY_FLOOR:
+        problems.append(f"越过质量地板：实际 Q{plan.quality} > 地板 Q{ICQ_QUALITY_FLOOR}")
+
+    # ③ GOP：只在自适应档检查（手动档是用户自己选的，不该被判错）
+    if GOP_AUTO and info.duration >= 4:
+        interval = _keyframe_interval(path)
+        lo, hi = SELFCHECK_GOP_RANGE
+        if interval and not (lo <= interval <= hi):
+            problems.append(f"GOP 异常：关键帧间隔 {interval:.2f}s 不在 {lo:g}~{hi:g}s")
+
+    # ④ 封装：MP4/MOV 必须 moov 前置；MKV 没有这个概念，不检查
+    if suffix in (".mp4", ".mov"):
+        if _moov_is_front(path) is False:
+            problems.append("faststart 未生效：moov 不在文件头部")
+
+    # ⑤ 音频：copy 档跳过（源编码码率不受控，拿它判 ±20% 会天天误报）
+    copied = False
+    src = result.original_info
+    if src is not None and (src.audio_codec or "").lower() == "opus" and suffix != ".mov":
+        src_kbps = (src.audio_bitrate or 0) / 1000.0
+        copied = 0 < src_kbps <= audio_quality * AUDIO_COPY_TOLERANCE
+    if not copied and info.audio_codec not in ("none", "") and info.audio_bitrate:
+        target_kbps = int(AUDIO_BITRATES[audio_quality].rstrip("k"))
+        actual_kbps = info.audio_bitrate / 1000.0
+        if target_kbps:
+            ratio = actual_kbps / target_kbps
+            # 下限是硬承诺（明显低于设定 = 偷偷降配，必须报）；
+            # 上限放宽到 +50%：Opus 是 VBR，实测纯音素材 96k 目标可产出 116k（+21%），
+            # 用 ±20% 会天天误报，反而让人无视自检。
+            if ratio < 1 - SELFCHECK_AUDIO_TOLERANCE:
+                problems.append(
+                    f"音频码率偏低：{actual_kbps:.0f}k < 设定 {target_kbps}k")
+            elif ratio > 1 + SELFCHECK_AUDIO_OVER_TOLERANCE:
+                problems.append(
+                    f"音频码率异常膨胀：{actual_kbps:.0f}k vs 设定 {target_kbps}k")
+    return problems
+
+
+# ============================================================
 # 压缩统计
 # ============================================================
 
@@ -4643,9 +4852,24 @@ def encode_one_in_place(
         original_size=source_info.size,
     )
 
-    temp_output = source.with_name(
-        source.stem + TEMP_MARKER + source.suffix.lstrip(".")
-    )
+    # 输出容器：由【13】决定（默认 MP4）。临时文件必须和正式输出同容器——
+    # ffmpeg 按扩展名选封装器，临时文件写成 .mp4 却想产出 MKV 会静默变 MP4。
+    ext = resolve_container(source)
+    final_path = source.with_suffix("." + ext)
+
+    # 目标已存在（同名的旧产物）→ 归入「跳过已有输出」：
+    # 不编码、不动源文件、不计失败（旧版这里 raise，被记成失败还触发无意义重试）。
+    if final_path != source and final_path.exists() and final_path.stat().st_size > 0:
+        update_task_state(index, status="skipped", message="跳过：目标已存在")
+        return Result(
+            index=index,
+            source=source,
+            output=final_path,
+            status="skipped",
+            message=f"跳过（目标已存在）：{final_path.name}",
+        )
+
+    temp_output = source.with_name(source.stem + TEMP_MARKER + ext)
 
     # 强制保证临时文件不是扫描范围中的正常视频。
     if temp_output.exists():
@@ -4731,12 +4955,26 @@ def encode_one_in_place(
     # 质量校验同样延后到统一 QC 阶段（原地替换模式下会保留备份供其比对）
     vmaf = None
 
-    # 到这里才允许替换原文件。
-    # 输出容器固定为 MP4：a.mkv 编码后变为 a.mp4（原来会保留 .mkv 扩展名但内容是 MP4）。
-    final_path = source.with_suffix(".mp4")
+    # 到这里才允许替换原文件。final_path 在函数开头就已按容器算好。
     try:
         if final_path != source and final_path.exists():
-            raise RuntimeError(f"目标文件已存在，拒绝覆盖：{final_path.name}")
+            # 竞态兜底：编码期间目标被别的任务生成 → 同样按"跳过已有输出"处理，
+            # 绝不覆盖、也不删源（上面的提前检查已覆盖绝大多数情况）。
+            try:
+                if temp_output.exists():
+                    temp_output.unlink()
+            except Exception:
+                pass
+            update_task_state(index, status="skipped", message="跳过：目标已存在")
+            return Result(
+                index=index,
+                source=source,
+                output=final_path,
+                status="skipped",
+                original_info=source_info,
+                elapsed=elapsed,
+                message=f"跳过（目标已存在）：{final_path.name}",
+            )
 
         backup_temp = source.with_name(
             source.stem + TEMP_MARKER + "original" + source.suffix
@@ -4761,6 +4999,11 @@ def encode_one_in_place(
         except Exception:
             # 删除失败不会让编码结果失效，但留下备份文件以便人工处理。
             pass
+
+        # 容器变化（如 a.mkv → a.mp4）时源文件已随替换被删除，写进日志便于事后追溯。
+        if final_path != source:
+            _run_log("[%s] 原地替换：%s -> %s（已删除源文件）"
+                     % (time.strftime("%H:%M:%S"), source.name, final_path.name))
 
     except Exception as e:
         try:
@@ -5148,7 +5391,7 @@ def main(start_step: int = 1) -> int:
     VIDEO_BITRATE_CAP_KBPS = _ask(7, start_step, ask_video_bitrate_cap)
     RC_MODE = RC_MODE_CAPPED if VIDEO_BITRATE_CAP_KBPS else RC_MODE_QUALITY
 
-    # 7. 音频质量（默认 64k）
+    # 7. 音频质量（默认 96k）
     audio_quality = _ask(8, start_step, ask_audio_quality)
 
     # ---- 9. 编码档位（默认 / 现场实测 / 手动）----
@@ -5169,12 +5412,18 @@ def main(start_step: int = 1) -> int:
     # ---- 12. 高级设置（默认不显示）----
     adv_mode = _ask(12, start_step, ask_advanced)
     if adv_mode == "2":
-        # ---- 13. 质量地板（默认关；开了会让码率可超上限）----
-        floor_mode = _ask(13, start_step, ask_quality_floor)
+        # ---- 13. 输出容器（默认 MP4）----
+        container_mode = _ask(13, start_step, ask_container)
+        apply_container_choice(container_mode)
+        if codec_key == "av1" and OUTPUT_CONTAINER == CONTAINER_MOV:
+            ui_warn("MOV + AV1 兼容性差（Apple 生态不认 AV1-in-MOV），建议改用 MP4 或 MKV")
+
+        # ---- 14. 质量地板（默认关；开了会让码率可超上限）----
+        floor_mode = _ask(14, start_step, ask_quality_floor)
         apply_quality_floor(floor_mode)
 
-        # ---- 14. 杜比视界（默认关：输出 HLG）----
-        dovi_mode = _ask(14, start_step, ask_dolby_vision)
+        # ---- 15. 杜比视界（默认关：输出 HLG）----
+        dovi_mode = _ask(15, start_step, ask_dolby_vision)
         apply_dolby_vision(dovi_mode)
 
 
@@ -5238,11 +5487,16 @@ def main(start_step: int = 1) -> int:
                 root=root,
                 recursive=recursive,
             )
-            # 同目录下 a.mkv 与 a.mp4 都会输出为 output/a.mp4，必须区分，
+            # 同目录下 a.mkv 与 a.mp4 都会输出成同一个名字，必须区分，
             # 否则会互相覆盖或被误判为“输出已存在”。
             owner = claimed_outputs.get(str(output).lower())
             if owner is not None and owner != source:
-                output = output.with_name(f"{source.stem}.{source.suffix.lstrip('.')}.mp4")
+                tag = source.suffix.lstrip(".").lower()
+                # 加源容器后缀区分；源容器与输出容器同名时（a.mp4 撞 a.mkv→a.mp4）
+                # 用 .copy 代替，避免出现 a.mp4.mp4 这种双扩展名。
+                label = f"{source.stem}.{tag}" if tag != output.suffix.lstrip(".").lower() \
+                    else f"{source.stem}.copy"
+                output = output.with_name(f"{label}{output.suffix}")
                 info_lines.append(f"   {color(f'! 与 {owner.name} 输出重名，改为：{output.name}', 'yellow')}")
             claimed_outputs[str(output).lower()] = source
 
@@ -5265,6 +5519,18 @@ def main(start_step: int = 1) -> int:
                 skipped_output += 1
                 info_lines.append(entry[0])
                 info_lines.append(f"       {dim(detail + '   → 跳过：输出已存在')}")
+                continue
+
+        # 原地替换 + 容器变化（如 a.mkv → a.mp4）：同名目标已存在 → 跳过已有输出。
+        # 旧版在这里 raise「拒绝覆盖」，被记成失败还触发重试；现在只跳过，不删源。
+        if output_mode == "in_place":
+            inplace_target = source.with_suffix(output_suffix(source))
+            if (inplace_target != source and inplace_target.exists()
+                    and inplace_target.stat().st_size > 0):
+                skipped_output += 1
+                info_lines.append(entry[0])
+                info_lines.append(
+                    f"       {dim(detail + '   → 跳过：目标已存在 ' + inplace_target.name)}")
                 continue
 
         candidates.append(
@@ -5383,8 +5649,18 @@ def main(start_step: int = 1) -> int:
           f"{dim(' ・ ' + decode_label_for(platform_key))}"
           f"{dim(' ・ GOP ' + f'{GOP_SECONDS:g}秒')}"
           f"{dim(' ・ ' + ('安全 output/' if output_mode == 'safe' else '原地替换'))}")
-    print(f"   {dim('封装')}      {color('+faststart ✓（moov 前置，iOS 拖动更快）', 'green')}"
-          f"{dim(' ・ 版本 ' + 'v81')}")
+    if OUTPUT_CONTAINER == CONTAINER_MKV:
+        pack_text = color("MKV（无 faststart：MKV 靠索引定位，Apple 相册不认）", "yellow")
+    elif OUTPUT_CONTAINER == CONTAINER_MOV:
+        pack_text = (color("+faststart ✓（moov 前置）", "green")
+                     + dim(" ・ 音频强制 AAC（MOV 不支持 Opus）"))
+    elif OUTPUT_CONTAINER == CONTAINER_SOURCE:
+        pack_text = color("跟随源（MP4 / MKV / MOV；其余源容器回落 MP4）", "white")
+    else:
+        pack_text = color("+faststart ✓（moov 前置，iOS 拖动更快）", "green")
+    print(f"   {dim('封装')}      {pack_text}"
+          f"{dim(' ・ 容器 ' + container_label())}"
+          f"{dim(' ・ 版本 ' + APP_VERSION)}")
     if capped_files and quality_files:
         print(f"   {dim('本批')}      {len(candidates)} 个文件："
               f"{color(f'{capped_files} 个上限模式', 'yellow')} · "
@@ -5413,13 +5689,19 @@ def main(start_step: int = 1) -> int:
         def at(token: str) -> Optional[int]:
             return cmd.index(token) if token in cmd else None
 
-        iv, ia, im = at("-c:v"), at("-c:a"), at("-movflags")
-        stop = [x for x in (ia, im) if x is not None]
-        video = cmd[iv:min(stop)] if iv is not None and stop else (cmd[iv:] if iv is not None else [])
+        iv, ia = at("-c:v"), at("-c:a")
+        # 结束标记按容器不同：MP4/MOV 有 -movflags，MKV 没有；
+        # 两种都一定有 -progress。少算一个就会把 "-progress pipe:1" 带进参数预览。
+        ends = [x for x in (at("-movflags"), at("-progress")) if x is not None]
+        video_stop = [x for x in (ia, *ends) if x is not None]
+        video = (cmd[iv:min(video_stop)]
+                 if iv is not None and video_stop
+                 else (cmd[iv:] if iv is not None else []))
         if ia is None:
             audio = []
         else:
-            audio = cmd[ia:im] if im is not None else cmd[ia:]
+            audio_stop = [x for x in ends if x is not None]
+            audio = cmd[ia:min(audio_stop)] if audio_stop else cmd[ia:]
         return " ".join(str(x) for x in video), " ".join(str(x) for x in audio)
 
     v_quality, a_text = _encoder_params(EncodePlan(mode=RC_MODE_QUALITY, quality=video_quality))
@@ -5460,6 +5742,8 @@ def main(start_step: int = 1) -> int:
         )
 
     results: list[Result] = []
+    # 每个文件的「承诺-行为」自检结果（编号 → 不符合项），最后统一展示
+    promise_notes: dict[int, list[str]] = {}
     session_start = time.time()
 
     # --------------------------------------------------------
@@ -5596,15 +5880,23 @@ def main(start_step: int = 1) -> int:
                     )
 
                 results.append(result)
-                if result.status != "failed" and result.output and result.source:
+                if result.status == "success" and result.output and result.source:
                     if str(result.output) not in _DV_PRESERVED_OUTPUT:
                         # 不能按「源是否 DV」跳过：【13】=关 时源仍是 DV，会连旋转和元数据一起丢
                         _apply_source_metadata(Path(result.output), Path(result.source))
-                if DOVI_MODE == "auto" and result.status != "failed" and result.output and is_dolby_vision(Path(result.source)):
+                if DOVI_MODE == "auto" and result.status == "success" and result.output and is_dolby_vision(Path(result.source)):
                     _pq = getattr(getattr(result, "plan", None), "quality", None)
                     if preserve_dolby_vision(Path(result.output), Path(result.source),
                                              int(_pq or 0)):
                         _run_log("[%s] 已保留杜比视界（RPU 注入 + dvvC 配置盒）" % time.strftime("%H:%M:%S"))
+
+                # 承诺-行为自检：产物实况 vs 面板承诺（不信"应该生效"，只看产物）
+                if result.status == "success":
+                    notes = check_promises(result, audio_quality)
+                    promise_notes[result.index] = notes
+                    for note in notes:
+                        _run_log("[%s] [%03d] 自检未达标：%s"
+                                 % (time.strftime("%H:%M:%S"), result.index, note))
                 _log_result(result)
 
                 # 编码过程中的完成信息不再单独打印：统一放到最后的"编码完成"模块，
@@ -5628,6 +5920,11 @@ def main(start_step: int = 1) -> int:
     failed_encode_count = sum(
         1 for r in results if r.status == "failed"
     )
+    # 执行期才发现的「跳过」（目标已存在 / 竞态）：不算失败，单独计数
+    skipped_in_run = sum(
+        1 for r in results if r.status == "skipped"
+    )
+    skipped_output += skipped_in_run
 
     # 收掉状态区，然后输出唯一的"编码完成"模块（含全部统计信息）
     STATUS_BOARD.close()
@@ -5674,15 +5971,19 @@ def main(start_step: int = 1) -> int:
                         new = Result(index=old.index, source=old.source,
                                      output=old.output or old.source, status="failed",
                                      error=f"重试时异常：{e}")
-                    if result.status != "failed" and result.output and result.source:
-                        if str(result.output) not in _DV_PRESERVED_OUTPUT:
+                    # 注意：这里必须用 new（本次重试的结果）。旧版误用了外层残留的
+                    # result 变量 → 重试成功的文件会漏掉元数据/DV 处理（既有 bug，已修）。
+                    if new.status == "success" and new.output and new.source:
+                        if str(new.output) not in _DV_PRESERVED_OUTPUT:
                             # 不能按「源是否 DV」跳过：【13】=关 时源仍是 DV，会连旋转和元数据一起丢
-                            _apply_source_metadata(Path(result.output), Path(result.source))
-                    if DOVI_MODE == "auto" and result.status != "failed" and result.output and is_dolby_vision(Path(result.source)):
-                        _pq = getattr(getattr(result, "plan", None), "quality", None)
-                        if preserve_dolby_vision(Path(result.output), Path(result.source),
+                            _apply_source_metadata(Path(new.output), Path(new.source))
+                    if DOVI_MODE == "auto" and new.status == "success" and new.output and is_dolby_vision(Path(new.source)):
+                        _pq = getattr(getattr(new, "plan", None), "quality", None)
+                        if preserve_dolby_vision(Path(new.output), Path(new.source),
                                                  int(_pq or 0)):
                             _run_log("[%s] 已保留杜比视界（RPU 注入 + dvvC 配置盒）" % time.strftime("%H:%M:%S"))
+                    if new.status == "success":
+                        promise_notes[new.index] = check_promises(new, audio_quality)
                     _log_result(new, tag=f"[第{attempt}次]")
                     if new.status != "failed":
                         recovered += 1
@@ -5773,6 +6074,21 @@ def main(start_step: int = 1) -> int:
               f"   {dim('节省')} {color(format_bytes(max(0, total_old - total_new)), 'green')}"
               f"   {color(f'-{total_reduction:.1f}%', 'green', bold=True)}"
               f"    {dim(f'总时长 {format_duration(total_old_dur)}　总耗时 {format_duration(total_elapsed)}')}")
+
+    # ---- 承诺-行为自检（v85）：产物实况 vs 面板承诺 ----
+    if successes:
+        bad_notes = {k: v for k, v in promise_notes.items() if v}
+        print()
+        if bad_notes:
+            print(color("▌ 自检未达标（产物与承诺不一致）", "yellow", bold=True))
+            for idx in sorted(bad_notes):
+                name = next((r.source.name for r in successes if r.index == idx), f"[{idx:03d}]")
+                for note in bad_notes[idx]:
+                    print(f"   {color(f'[{idx:03d}]', 'blue')} {color(name, 'white')}   "
+                          f"{color(note, 'yellow')}")
+        else:
+            print(f"   {dim('自检')}      {color('5 项全通过', 'green')}"
+                  f"   {dim('（上限 / 质量地板 / GOP / faststart / 音频码率）')}")
 
     if failed_results:
         print()
