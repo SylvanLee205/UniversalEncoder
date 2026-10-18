@@ -1388,7 +1388,8 @@ def ask_quality_floor() -> str:
         ("4", "Q38", "更宽松"),
         ("5", "自定义", "输入 20~51 的 Q 值"),
     ]
-    return ask_choice("【12. 质量地板】", rows, default="1", default_label="关")
+    # 编号与主流程一致：12 高级设置 → 13 输出容器 → 14 质量地板 → 15 杜比视界
+    return ask_choice("【14. 质量地板】", rows, default="1", default_label="关")
 
 
 def apply_quality_floor(mode: str) -> None:
@@ -2015,7 +2016,7 @@ def ask_dolby_vision() -> str:
         ("1", "关（默认）", "输出 HLG：竖屏/亮度/时间位置都正确，体积最优（B 帧可用）"),
         ("2", "保留杜比视界（实验性）", "有 DV 标志，但实测亮度偏亮、体积约 +40%、封面异常，不推荐"),
     ]
-    return ask_choice("【13. 杜比视界】", rows, default="1", default_label="关")
+    return ask_choice("【15. 杜比视界】", rows, default="1", default_label="关")
 
 
 def apply_dolby_vision(mode: str) -> None:
