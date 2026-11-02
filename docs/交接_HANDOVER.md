@@ -1,7 +1,7 @@
 # UniversalEncoder 项目交接文档（HANDOVER）
 
 > 生成时间：2026-10-18 21:47（Asia/Shanghai）；§12/§13 v85；§14 目录归档整理；§15 推送完成（SSH）；§16 v86；§17 v87 死代码清理与桌面盘点；**§18 无缝交接（2026-11-03）**
-> 当前版本：**`UniversalEncoder_v87.py`**（v86 已移入 `归档\旧版本\` 作回滚点）
+> 当前版本：**`UniversalEncoder_v87.py`**（旧版本程序已于 2026-11-03 清理出本机，回滚靠 GitHub 的 git 历史，见 §19）
 > 目的：让新的账号 / 模型 / AI 无需从头摸索即可继续本项目。**所有数据均为实测，非估算。**
 > **本文件已归档到 `…\Video_ Optimize\归档\文档\`；下面的路径表是整理后的实际位置。**
 
@@ -16,7 +16,7 @@
 | 你想做什么 | 直接这么做 |
 |---|---|
 | 先跑一遍 | 双击 `C:/Users/Administrator/Desktop//Video_ Optimize\UniversalEncoder_v87.py` |
-| 改代码 | 从 `…\Video_ Optimize\UniversalEncoder_v87.py` 改；**改完另存为 `UniversalEncoder_v88.py`，并把 v87 移进 `归档\旧版本\`**（根目录永远只留一个程序，避免双击错版本） |
+| 改代码 | 从 `…\Video_ Optimize\UniversalEncoder_v87.py` 改；**改完另存为 `UniversalEncoder_v88.py`，旧的 v87 不留在本机**（根目录永远只留一个程序，避免双击错版本；旧版可从 git 历史取回，见 §19） |
 | 跑测试 | `…\Video_ Optimize\归档\测试脚本\_selftest_v87.py`（40 项单测）、`_e2e_v87.py`（5 组真实菜单全流程） |
 | 入库 | 仓库 `C://Users//Administrator//Desktop//UniversalEncoder-repo`；远端 `git@github.com:SylvanLee205/UniversalEncoder.git`（SSH 公钥已配好，`git push` 直接可用） |
 | 查历史 | 本文件 §12~§18 是逐版落地记录；`归档\文档\总结\编码参数与问题总结.md` 是 32 章技术长文 |
@@ -34,7 +34,7 @@ ffmpeg 在 `C://User Program Files\FFmpeg\bin\ffmpeg.exe`（n9.0.2，含 QSV/NVE
 **三件等你/等用户拍板的事（别自作主张动）**：
 - `…\Video_ Optimize\1_test\`（**4.6 GB 真实视频** + 两批压缩产物）要不要收进 `归档\测试素材\`；
 - GOP 帧数下限 **48 → 24 帧**（改完 30fps 素材的"自适应 1 秒"才真是 1 秒，但会略增体积、拖动更跟手）；
-- 归档里 v85/v86 的 4 个历史测试脚本是否精简（建议留着）。
+- ~~归档里 v85/v86 的 4 个历史测试脚本是否精简？~~ → **2026-11-03 已随旧版本一并清理**（见 §19）。
 
 ---
 
@@ -53,7 +53,7 @@ ffmpeg 在 `C://User Program Files\FFmpeg\bin\ffmpeg.exe`（n9.0.2，含 QSV/NVE
 | 用途 | 路径 |
 |---|---|
 | **当前程序** | `C:\Users\Administrator\Desktop\Video_ Optimize\UniversalEncoder_v87.py` |
-| 上一版（回滚点） | `…\Video_ Optimize\归档\旧版本\UniversalEncoder_v86.py`（v84/v85 也在该目录） |
+| 上一版（回滚点） | **本机不保留旧版本程序**（2026-11-03 清理，见 §19）；用 `git checkout 528dd3d -- UniversalEncoder.py` 从 GitHub 历史取回 v86 |
 | 本轮测试脚本 | `…\Video_ Optimize\归档\测试脚本\_selftest_v87.py`（40 项）、`_e2e_v87.py`（5 组交互全流程） |
 | 程序副本 | `C:\Users\Administrator\Desktop\UniversalEncoder-repo\UniversalEncoder.py`（`VideoEncodeTest\` 已被用户删除） |
 | **技术文档（32 章）** | `…\Video_ Optimize\归档\文档\总结\编码参数与问题总结.md` |
@@ -691,7 +691,7 @@ GitHub 连接器在本会话也不可用（`list_commits` 未注册）。
    C:/Python311/python.exe _e2e_v87.py            :: 期望 A/B/C/D/E 五组全通过
    ```
 4. **如果要改代码**：从 `Video_ Optimize\UniversalEncoder_v87.py` 出发 → 改 → 另存 `v88`
-   → **把 v87 移进 `归档\旧版本\`** → 同步 `UniversalEncoder-repo\UniversalEncoder.py`
+   → **把 v87 移出本机**（旧版不留本机，见 §19） → 同步 `UniversalEncoder-repo\UniversalEncoder.py`
    → 提交推送 → 更新文档三件套 → 记录到本文件 §19。
 5. **如果用户提了别的问题**：先查本文件 §16（自检基准的由来）、§17（死代码清理的口径）、
    技术文档第三十二章，很多"看起来是 bug"的现象在那儿都有定论，别重复踩。
@@ -723,7 +723,8 @@ ssh -T git@github.com
 ### 18.5 用户的明确要求与工作习惯（接手前务必知道）
 
 1. **根目录永远只留一个 `UniversalEncoder_vNN.py`**——用户 2026-10-18 亲自要求的，
-   理由是"避免双击错版本"。每出一版，旧版**立刻**移进 `归档\旧版本\`。
+  理由是"避免双击错版本"。每出一版，旧版**不留在本机**（旧逻辑会误导检索）——**回滚靠 GitHub 的 git 历史**：
+  `git checkout 528dd3d -- UniversalEncoder.py`（v86）、`git checkout c32662b -- UniversalEncoder.py`（v85）。
    `Renamer_iPhone_Screenrecording.py` 是用户常用的重命名工具，**留在根目录**。
    `dovi_tool.exe` 放 PATH（`C:/User Program Files\DoviTool\`），**不放项目目录**（用户嫌容易认错）。
 2. **要"地毯式排查"**：用户明确要求过把代码和逻辑整个过一遍，别抽查了事。
@@ -740,3 +741,78 @@ ssh -T git@github.com
 ### 18.6 给新 AI 的开场提示词（可直接复制粘贴）
 
 见同目录文件 **`新AI_起步提示词.md`**（自包含版本，不依赖读本文件）。
+
+---
+
+## 19. 旧版本清理（2026-11-03 01:5x）
+
+### 19.1 触发与判断
+
+用户原话：「很多旧的是不是确实没必要，反而会引起歧义，而且大概率也不看了吧，
+因为只看新代码，也能知道个大概，主要是我们的实测记录和容易踩的坑啥的对吗？代码自带逻辑对吗」
+
+**判断成立**，理由（三条都实测过）：
+
+1. **旧版本确实会引起歧义**：`旧版本\`（v84/v85/v86）与 `里程碑版本\`（9 份）里有**大量同名函数**
+   （`GOP_AUTO` / `ICQ_CAP_TOLERANCE` / `check_promises` / `build_ffmpeg_command` / `ask_gop`…），
+   检索会一并命中，而**旧逻辑是过时的**：
+   v85 的自检基准写死 0.8~2.6 秒（所以手选 GOP 会被误判）、v83 之前上限会被静默跳过、
+   v85 之前临时文件沿用源扩展名（`.MOV` + Opus 直接失败）。
+2. **它们大概率不会被看**：当前代码自带完整逻辑与注释（6,101 行，单文件可读），
+   真正需要"历史"才能理解的东西（为什么这么取舍）已经全部沉淀进 32 章技术长文。
+3. **代码自带逻辑 + 文档承载取舍 + git 兜底历史** = 完整闭环。
+
+### 19.2 清了什么（20 个文件 / 2.6 MB，移出本机）
+
+| 移走的 | 数量 | 能不能找回 |
+|---|---|---|
+| `旧版本\`：v84 / v85 / v86 | 3 | ✅ `git checkout 528dd3d -- UniversalEncoder.py`（v86）、`c32662b`（v85）、`c862ece`（v86 提交点） |
+| `里程碑版本\`：v1.0 / v3 / v7 / v15 / v16 / v23 / v31 / v37 / v48 | 9 | ✅ GitHub `archive/` 里有**逐字节相同**的副本（已实测比对一致） |
+| `测试脚本\`：v85 / v86 的 4 个历史脚本 | 4 | ✅ 可从 git 历史重新生成（模板与 v87 相同） |
+| `日志与缓存\`：`.DS_Store` / 两份旧运行日志 / 旧 `_env_cache.json` | 4 | ❌ 过期垃圾，无价值 |
+
+**没有直接删除**：全部移到 **`C:/Users/Administrator/Desktop/_已清理_20261103/`**（同盘移动，可逆）。
+确认无用后删掉那个文件夹即可；想找回，移回 `归档\` 下的同名目录。
+
+### 19.3 刻意**没动**的（重要）
+
+| 项 | 为什么不动 |
+|---|---|
+| **全部文档** | 用户明确要留的是「实测记录 + 容易踩的坑」——这正是文档的全部内容，一份没删 |
+| `归档\测试素材\` 8.8 GB | 里面几乎全是**无损参考源片**（`_ref_*.mkv`、`_lossless_*.mp4`），**不是**可再生的压缩产物。删了就做不了 VMAF 对比 |
+| `1_test\` 4.6 GB | 用户真实视频素材 |
+| `归档\4K_29.97FPS_Ultra Compressbility_convert.bat` | 是**用户自己写的** NVENC 4K 批处理（2025-04），不是本项目的旧代码 |
+
+### 19.4 清理后的结构
+
+```
+Video_ Optimize\
+├─ README.md                    ← ★ 项目入口索引（新接手的人/AI 先读这个）
+├─ UniversalEncoder_v87.py      ← 当前程序，唯一权威版本
+├─ Renamer_iPhone_Screenrecording.py
+├─ _env_cache.json
+├─ 1_test\                      ← 4.6 GB 真实视频
+└─ 归档\
+   ├─ README.md                 ← 归档说明（已重写，含本次清理记录）
+   ├─ 文档\                     ← 交接 / 技术长文 32 章 / 项目总结 / 报告 6 份 / 起步提示词
+   ├─ 测试脚本\                 ← 只有 v87 一套
+   ├─ 测试素材\                 ← 8.8 GB 无损源片
+   └─ 4K_..._convert.bat        ← 用户自己的 NVENC 工具
+```
+
+### 19.5 版本迭代约定更新（§14.2 的第 2、4 条已作废）
+
+- 旧版**不再移进 `归档\旧版本\`**，而是**不留在本机**；
+- **回滚点 = GitHub 的 git 历史**：
+  ```bat
+  cd C:/Users/Administrator/Desktop/UniversalEncoder-repo
+  git checkout 528dd3d -- UniversalEncoder.py   :: v86
+  git checkout c32662b -- UniversalEncoder.py   :: v85
+  git log --oneline -- UniversalEncoder.py        :: 找任意历史版本
+  ```
+- 测试脚本**只保留当前版本**的一套；
+- 里程碑版本不再往本机放，仓库 `archive/` 已有（git 历史本身也是里程碑）。
+
+### 19.6 验证
+
+清理后立刻复跑：`_selftest_v87.py` **40/40 PASS**（脚本按"从自身目录向上逐级找程序"定位，仍正常）。
