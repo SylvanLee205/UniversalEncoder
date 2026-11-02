@@ -179,7 +179,7 @@ CONTAINER_LABELS = {
 }
 
 # 程序版本（编码信息面板显示用；改代码就同步改这里）
-APP_VERSION = "v85"
+APP_VERSION = "v86"
 
 # FFmpeg 进度里的 out_time 多久不前进就判定卡死。
 # 注意：不能用“有没有输出行”判断——ffmpeg 即使一帧都没编出来，也会持续
@@ -1433,8 +1433,11 @@ def ask_gop() -> str:
 
 
 def apply_gop_choice(mode: str) -> None:
-    """把选择写进 GOP_SECONDS（calculate_gop 运行时读取）。"""
-    global GOP_SECONDS
+    """把选择写进 GOP_SECONDS / GOP_AUTO（calculate_gop 运行时读取）。"""
+    # GOP_AUTO 必须也声明 global：v85 只声明了 GOP_SECONDS，下面的赋值会变成
+    # 局部变量，全局 GOP_AUTO 永远是 True —— 用户手选 4 秒 GOP，自检却还按
+    # 「自适应」的 0.8~2.6 秒区间去卡，必然误报「GOP 异常」。
+    global GOP_SECONDS, GOP_AUTO
     if mode in ("5", "custom"):
         while True:
             raw = input("请输入 GOP 秒数（1~30，b 返回）：").strip()
@@ -1474,6 +1477,31 @@ def calculate_gop(fps: float, seconds: Optional[float] = None) -> int:
         return int(round(25 * seconds))
     gop = int(round(fps * seconds))
     return max(48, min(3000, gop))
+
+
+def auto_gop_high(info) -> bool:
+    """自适应档下的"高难度素材"判定：10bit 或短边≥3000（4K 类）→ 用 1 秒。
+
+    编码与自检共用这一份判定，避免出现"编码按 1 秒压、自检按 2 秒判"的错位。
+    """
+    return bool(getattr(info, "is_10bit", False)
+                or max(getattr(info, "width", 0) or 0,
+                       getattr(info, "height", 0) or 0) >= 3000)
+
+
+def expected_gop_seconds(info, fps: Optional[float] = None) -> float:
+    """本次编码**真正承诺**的关键帧间隔（秒）。
+
+    关键点：不能直接拿 GOP_SECONDS 比，calculate_gop 会把帧数夹到 [48, 3000]，
+    低帧率素材（如 10fps × 2 秒 = 20 帧）会被抬到 48 帧 = 4.8 秒。
+    自检若按 2 秒判，就会冤枉编码器。所以这里把夹紧后的帧数再换算回秒。
+    """
+    if fps is None:
+        fps = getattr(info, "fps", 0) or 0
+    seconds = 1.0 if (GOP_AUTO and auto_gop_high(info)) else GOP_SECONDS
+    if fps <= 0:
+        return seconds
+    return calculate_gop(fps, seconds) / fps
 
 
 # ============================================================
@@ -2895,6 +2923,8 @@ def _encode_iterative(worker, base_args, plan, duration, cap_kbps, codec_key,
         new_q = refit_quality(plan.quality, kbps, cap_kbps, codec_key)
         if ICQ_QUALITY_FLOOR and new_q > int(ICQ_QUALITY_FLOOR):
             # 质量地板：不再抬 Q（宁可码率超上限），避免高像素率素材被压成块状
+            # 打上标记：自检①看到它就不判"上限未达成"，只作为说明写进面板。
+            plan.floor_blocked = True
             _run_log("[%s] 触及质量地板 Q%d：实测 %d kbps 超上限 %d kbps，停止抬 Q"
                      % (time.strftime("%H:%M:%S"), int(ICQ_QUALITY_FLOOR),
                         int(kbps), int(cap_kbps)))
@@ -2912,6 +2942,8 @@ def _encode_iterative(worker, base_args, plan, duration, cap_kbps, codec_key,
         retry_plan = EncodePlan(mode=RC_MODE_QUALITY, quality=new_q)
         retry_plan.cap_kbps = cap_kbps
         retry_plan.predicted_kbps = plan.predicted_kbps
+        # 继承地板标记：反解中途触过地板，最终产物即使超上限也不算违规
+        retry_plan.floor_blocked = plan.floor_blocked
         res2 = worker(*base_args, retry_plan)
         if res2.status == "failed":
             _run_log("    （第 %d 次重压失败，保留上一版产物）" % (step + 1))
@@ -3423,6 +3455,9 @@ class EncodePlan:
     cap_kbps: Optional[int] = None
     predicted_kbps: Optional[int] = None
     note: str = ""
+    # 上限反解时「因为质量地板而停止抬 Q」：此时码率超上限是用户的选择，
+    # 自检① 不能判违规（v85 没有这个标记，开地板的文件一律被报上限未达成）。
+    floor_blocked: bool = False
 
     @property
     def is_capped(self) -> bool:
@@ -3741,10 +3776,8 @@ def build_ffmpeg_command(
     container = output.suffix.lower().lstrip(".") or CONTAINER_MP4
     # 自适应：高难度素材（相机/10bit/4K）用 1 秒，其余用 GOP_SECONDS(默认 2 秒)
     # 注意：不能「不设 -g」——编码器默认 GOP 约 4 秒，手机上拖动会卡成 PPT（实测）
-    _auto_high = bool(getattr(info, "is_10bit", False)
-                         or max(getattr(info, "width", 0) or 0,
-                                getattr(info, "height", 0) or 0) >= 3000)
-    gop = calculate_gop(info.fps, 1.0 if (GOP_AUTO and _auto_high) else None)
+    # 判定逻辑与自检共用 auto_gop_high()，改一处两边同步。
+    gop = calculate_gop(info.fps, 1.0 if (GOP_AUTO and auto_gop_high(info)) else None)
     args = [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "warning"]
     args += decode_args
     args += [
@@ -4400,9 +4433,23 @@ def validate_output(
 # 全都发现不了——只有实跑才暴露。所以每片编完就用**产物自己的属性**反查
 # "面板上承诺的事"到底有没有做到。这些检查只用一次 ffprobe（读关键帧）+ 读文件头。
 SELFCHECK_CAP_RATIO = 1.08        # ① 上限：产物视频码率 ≤ 上限 × 1.08
-SELFCHECK_GOP_RANGE = (0.8, 2.6)  # ③ 自适应 GOP：实际关键帧间隔应落在这个区间
+# ③ GOP：**不再用写死的秒数区间**。基准改成"本次实际承诺的间隔"× 容差，
+#    这样手选 1/2/3/自定义秒都能检查，而且不会把 4 秒 GOP 判成异常
+#    （v85 的 (0.8, 2.6) 秒是照"自适应"定的，用户手选别的档就必然误报）。
+SELFCHECK_GOP_TOLERANCE = (0.60, 1.65)   # 实测间隔 / 承诺间隔 的允许区间
 SELFCHECK_AUDIO_TOLERANCE = 0.20      # ⑤ 音频：低于设定 20% = 降配，报警
 SELFCHECK_AUDIO_OVER_TOLERANCE = 0.50 # ⑤ 音频：高于设定 50% = 异常膨胀才报警
+
+
+@dataclass
+class PromiseCheck:
+    """承诺-行为自检结果。
+
+    problems：真·违规（面板列为「自检未达标」，需要人看）
+    notes   ：预期内的说明（比如开了质量地板导致码率超上限），不判违规但要说清楚
+    """
+    problems: list = field(default_factory=list)
+    notes: list = field(default_factory=list)
 
 
 def _keyframe_interval(path: Path) -> float:
@@ -4445,35 +4492,58 @@ def _moov_is_front(path: Path) -> Optional[bool]:
     return pos_moov < pos_mdat
 
 
-def check_promises(result: "Result", audio_quality: int) -> list[str]:
-    """核对"面板承诺 ↔ 产物实况"；返回不符合项（空列表 = 全通过）。"""
-    problems: list[str] = []
+def check_promises(result: "Result", audio_quality: int) -> "PromiseCheck":
+    """核对"面板承诺 ↔ 产物实况"。
+
+    v86 的核心改动：**每条检查的基准都来自"本次运行时真正的设置"**，
+    不再有独立于用户选择之外的写死基准。返回 PromiseCheck：
+      - problems = 真违规
+      - notes    = 预期内的说明（例如质量地板导致码率超上限）
+    """
+    out = PromiseCheck()
+    problems, notes = out.problems, out.notes
     info = result.output_info
     plan = result.plan
     if info is None:
-        return problems
+        return out
     path = Path(result.output)
     if not path.exists():
-        return problems
+        return out
     suffix = path.suffix.lower()
 
-    # ① 上限：只在"真的按上限编码"的文件上检查（质量模式没有封顶承诺）
-    if plan is not None and plan.is_capped and plan.cap_kbps:
+    # ① 上限：只要这次是按上限压的就检查（不限码率的质量模式没有封顶承诺）
+    #    v85 用 plan.is_capped 判定，而反解重压后 plan.mode 会被改成 QUALITY
+    #    → 需要多遍反解的大文件反而被跳过检查。这里改成看 cap_kbps 本身。
+    if plan is not None and plan.cap_kbps:
         actual_kbps = (info.video_bitrate or 0) / 1000.0
         if actual_kbps and actual_kbps > plan.cap_kbps * SELFCHECK_CAP_RATIO:
-            problems.append(
-                f"上限未达成：{actual_kbps:.0f}k > {plan.cap_kbps}k×{SELFCHECK_CAP_RATIO:g}")
+            if plan.floor_blocked or (ICQ_QUALITY_FLOOR
+                                      and plan.quality >= int(ICQ_QUALITY_FLOOR)):
+                # 用户选了质量地板，并明确"宁可码率超上限"→ 不是违规，说明一句
+                notes.append(
+                    f"质量地板优先：{actual_kbps:.0f}k > 上限 {plan.cap_kbps}k"
+                    f"（已按你的选择停在 Q{plan.quality}）")
+            else:
+                problems.append(
+                    f"上限未达成：{actual_kbps:.0f}k > {plan.cap_kbps}k×{SELFCHECK_CAP_RATIO:g}")
 
     # ② 质量地板：反解后的 Q 不允许被抬过地板
     if ICQ_QUALITY_FLOOR and plan is not None and plan.quality > ICQ_QUALITY_FLOOR:
         problems.append(f"越过质量地板：实际 Q{plan.quality} > 地板 Q{ICQ_QUALITY_FLOOR}")
 
-    # ③ GOP：只在自适应档检查（手动档是用户自己选的，不该被判错）
-    if GOP_AUTO and info.duration >= 4:
+    # ③ GOP：基准 = 本次实际承诺的间隔（自适应 → 1 秒或 2 秒；手动 → 用户选的秒数）
+    #    再乘容错区间。手选 4 秒就按 4 秒判，不会再拿"自适应"的区间卡人。
+    if info.duration >= 4:
+        expected = expected_gop_seconds(result.original_info or info,
+                                        info.fps)
         interval = _keyframe_interval(path)
-        lo, hi = SELFCHECK_GOP_RANGE
-        if interval and not (lo <= interval <= hi):
-            problems.append(f"GOP 异常：关键帧间隔 {interval:.2f}s 不在 {lo:g}~{hi:g}s")
+        lo_r, hi_r = SELFCHECK_GOP_TOLERANCE
+        if expected > 0 and interval:
+            ratio = interval / expected
+            if not (lo_r <= ratio <= hi_r):
+                problems.append(
+                    f"GOP 异常：关键帧间隔 {interval:.2f}s，本次设定 {expected:.2f}s"
+                    f"（允许 {expected * lo_r:.2f}~{expected * hi_r:.2f}s）")
 
     # ④ 封装：MP4/MOV 必须 moov 前置；MKV 没有这个概念，不检查
     if suffix in (".mp4", ".mov"):
@@ -4481,11 +4551,14 @@ def check_promises(result: "Result", audio_quality: int) -> list[str]:
             problems.append("faststart 未生效：moov 不在文件头部")
 
     # ⑤ 音频：copy 档跳过（源编码码率不受控，拿它判 ±20% 会天天误报）
-    copied = False
+    #    判定条件与"命令构建端"逐字对齐（含 int 截断与 MOV 不走 copy），
+    #    v85 用浮点比较，源码率刚好卡在阈值上时会出现"明明复制了却仍被检查"。
     src = result.original_info
-    if src is not None and (src.audio_codec or "").lower() == "opus" and suffix != ".mov":
-        src_kbps = (src.audio_bitrate or 0) / 1000.0
-        copied = 0 < src_kbps <= audio_quality * AUDIO_COPY_TOLERANCE
+    copied = False
+    if src is not None and suffix != ".mov":
+        src_kbps_int = int((src.audio_bitrate or 0) / 1000)
+        copied = ((src.audio_codec or "").lower() == "opus"
+                  and 0 < src_kbps_int <= int(audio_quality * AUDIO_COPY_TOLERANCE))
     if not copied and info.audio_codec not in ("none", "") and info.audio_bitrate:
         target_kbps = int(AUDIO_BITRATES[audio_quality].rstrip("k"))
         actual_kbps = info.audio_bitrate / 1000.0
@@ -4500,7 +4573,7 @@ def check_promises(result: "Result", audio_quality: int) -> list[str]:
             elif ratio > 1 + SELFCHECK_AUDIO_OVER_TOLERANCE:
                 problems.append(
                     f"音频码率异常膨胀：{actual_kbps:.0f}k vs 设定 {target_kbps}k")
-    return problems
+    return out
 
 
 # ============================================================
@@ -5744,7 +5817,8 @@ def main(start_step: int = 1) -> int:
 
     results: list[Result] = []
     # 每个文件的「承诺-行为」自检结果（编号 → 不符合项），最后统一展示
-    promise_notes: dict[int, list[str]] = {}
+    promise_notes: dict[int, list[str]] = {}     # 真违规
+    promise_info: dict[int, list[str]] = {}      # 预期内的说明（不判违规但要说清）
     session_start = time.time()
 
     # --------------------------------------------------------
@@ -5893,10 +5967,14 @@ def main(start_step: int = 1) -> int:
 
                 # 承诺-行为自检：产物实况 vs 面板承诺（不信"应该生效"，只看产物）
                 if result.status == "success":
-                    notes = check_promises(result, audio_quality)
-                    promise_notes[result.index] = notes
-                    for note in notes:
+                    chk = check_promises(result, audio_quality)
+                    promise_notes[result.index] = chk.problems
+                    promise_info[result.index] = chk.notes
+                    for note in chk.problems:
                         _run_log("[%s] [%03d] 自检未达标：%s"
+                                 % (time.strftime("%H:%M:%S"), result.index, note))
+                    for note in chk.notes:
+                        _run_log("[%s] [%03d] 自检说明：%s"
                                  % (time.strftime("%H:%M:%S"), result.index, note))
                 _log_result(result)
 
@@ -5984,7 +6062,9 @@ def main(start_step: int = 1) -> int:
                                                  int(_pq or 0)):
                             _run_log("[%s] 已保留杜比视界（RPU 注入 + dvvC 配置盒）" % time.strftime("%H:%M:%S"))
                     if new.status == "success":
-                        promise_notes[new.index] = check_promises(new, audio_quality)
+                        _chk = check_promises(new, audio_quality)
+                        promise_notes[new.index] = _chk.problems
+                        promise_info[new.index] = _chk.notes
                     _log_result(new, tag=f"[第{attempt}次]")
                     if new.status != "failed":
                         recovered += 1
@@ -6076,9 +6156,10 @@ def main(start_step: int = 1) -> int:
               f"   {color(f'-{total_reduction:.1f}%', 'green', bold=True)}"
               f"    {dim(f'总时长 {format_duration(total_old_dur)}　总耗时 {format_duration(total_elapsed)}')}")
 
-    # ---- 承诺-行为自检（v85）：产物实况 vs 面板承诺 ----
+    # ---- 承诺-行为自检（v85 引入，v86 改为"基准跟随用户设置"）----
     if successes:
         bad_notes = {k: v for k, v in promise_notes.items() if v}
+        info_notes = {k: v for k, v in promise_info.items() if v}
         print()
         if bad_notes:
             print(color("▌ 自检未达标（产物与承诺不一致）", "yellow", bold=True))
@@ -6090,6 +6171,14 @@ def main(start_step: int = 1) -> int:
         else:
             print(f"   {dim('自检')}      {color('5 项全通过', 'green')}"
                   f"   {dim('（上限 / 质量地板 / GOP / faststart / 音频码率）')}")
+        # 预期内的说明：不是错误，但不写出来会让人以为程序没按自己选的做
+        if info_notes:
+            print(color("▌ 自检说明（按你的选择发生，非故障）", "cyan", bold=True))
+            for idx in sorted(info_notes):
+                name = next((r.source.name for r in successes if r.index == idx), f"[{idx:03d}]")
+                for note in info_notes[idx]:
+                    print(f"   {color(f'[{idx:03d}]', 'blue')} {color(name, 'white')}   "
+                          f"{color(note, 'cyan')}")
 
     if failed_results:
         print()
