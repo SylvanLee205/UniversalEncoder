@@ -179,7 +179,7 @@ CONTAINER_LABELS = {
 }
 
 # 程序版本（编码信息面板显示用；改代码就同步改这里）
-APP_VERSION = "v86"
+APP_VERSION = "v87"
 
 # FFmpeg 进度里的 out_time 多久不前进就判定卡死。
 # 注意：不能用“有没有输出行”判断——ffmpeg 即使一帧都没编出来，也会持续
@@ -191,13 +191,10 @@ PROGRESS_TIMEOUT = 180
 # ------------------------------------------------------------
 # quality：只按质量值编码（QSV 质量模式 / NVENC CQ），不限制体积
 # capped ：所有视频都按码率上限编码
-# auto   ：先用质量模式采样估算码率，超过上限的文件才改用上限模式（推荐）
 RC_MODE_QUALITY = "quality"
 RC_MODE_CAPPED = "capped"
-RC_MODE_AUTO = "auto"
 
-# 当前运行使用的模式与上限（由 main() 设置，编码线程只读）
-RC_MODE = RC_MODE_AUTO
+# 当前运行使用的码率上限（由 main() 设置，编码线程只读）
 VIDEO_BITRATE_CAP_KBPS: Optional[int] = None
 
 # ------------------------------------------------------------
@@ -859,7 +856,6 @@ def calibrate_nvenc(
     return pick["settings"]
 
 
-
 # ============================================================
 # 并发收益实测（命令行：python <本脚本> --concurrency-test）
 # ------------------------------------------------------------
@@ -1311,11 +1307,6 @@ QUALITY_LABELS_NVENC_AV1 = {
     44: "高压缩",
     48: "极限压缩",
 }
-RC_MODE_LABELS = {
-    RC_MODE_QUALITY: "质量优先（只看画质，不看体积）",
-    RC_MODE_CAPPED: "全部限码率（体积可控，复杂画面会被牺牲）",
-    RC_MODE_AUTO: "自动兜底（按文件采样判断，推荐）",
-}
 
 
 def quality_levels(platform_key: str, codec_key: str) -> list[int]:
@@ -1334,12 +1325,6 @@ def quality_label(platform_key: str, codec_key: str, value: int) -> str:
     else:
         table = QUALITY_LABELS_INTEL
     return table.get(value, "自定义")
-
-
-def rc_mode_label(mode: str) -> str:
-    return RC_MODE_LABELS.get(mode, mode)
-
-
 
 
 def encoder_name(platform_key: str, codec_key: str) -> str:
@@ -1624,7 +1609,6 @@ TASK_STATES: dict[int, TaskState] = {}
 STOP_REQUESTED = False
 
 
-
 def format_bytes(value: int | float) -> str:
     value = float(value)
     units = ["B", "KB", "MB", "GB", "TB"]
@@ -1662,10 +1646,6 @@ def video_bitrate_text(info: "MediaInfo") -> str:
     return f"≈{text}" if info.video_bitrate_estimated and text != "N/A" else text
 
 
-def format_percent(value: float) -> str:
-    return f"{max(0.0, min(100.0, value)):.1f}%"
-
-
 def safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None:
@@ -1695,10 +1675,6 @@ def parse_ratio(value: Any) -> float:
         return float(value)
     except Exception:
         return 0.0
-
-
-def quote_for_display(path: Path) -> str:
-    return str(path)
 
 
 # ============================================================
@@ -2256,10 +2232,6 @@ def ui_hint(text: str) -> None:
     print(f"  {dim(text)}")
 
 
-def ui_file(name: str) -> None:
-    print(color(f"  {name}", "white", bold=True))
-
-
 class BackRequested(Exception):
     """用户在任何一步输入 b/返回，要求退回重选。"""
 
@@ -2662,41 +2634,6 @@ def verify_encoder_available(encoder: str) -> tuple[bool, str]:
         return False, picked
 
     return True, "编码器已通过 3 帧试编码"
-
-
-def describe_encoder_capabilities(platform_key: str, codec_key: str) -> list[str]:
-    encoder = encoder_name(platform_key, codec_key)
-    caps = ENCODER_CAPABILITIES.get(encoder)
-    if not caps:
-        return ["未读取 encoder help，运行时将按失败自动回退。"]
-
-    lines: list[str] = []
-    if platform_key == "nvidia":
-        if caps.has("tune") and caps.supports_value("tune", "uhq"):
-            lines.append("Tune：UHQ（当前 FFmpeg/硬件支持）")
-        elif caps.has("tune"):
-            lines.append("Tune：HQ（UHQ 不可用，自动降级）")
-        else:
-            lines.append("Tune：不使用（encoder 不支持 tune）")
-        lines.append(
-            "Multipass：fullres" if caps.has("multipass") and caps.supports_value("multipass", "fullres")
-            else "Multipass：自动省略（当前 encoder 不支持 fullres）"
-        )
-        if caps.has("b_ref_mode"):
-            lines.append("B-ref：middle（当前 encoder 支持）")
-        else:
-            lines.append("B-ref：自动关闭（当前 encoder 不支持 b_ref_mode）")
-    else:
-        lines.append("Preset：veryslow（QSV TargetUsage=1，最慢但画质最好）")
-        lines.append(f"GOP：按每个文件的帧率取 {GOP_SECONDS:g} 秒（整片实测：GOP 越长同画质越省，"
-                     f"这里取画质与拖动定位的折中）")
-        if codec_key == "av1":
-            lines.append("AV1：无 -bf / -scenario / -rdo 等 HEVC 专属选项，参数集更小")
-            lines.append("AV1 的质量模式依赖 ICQ 是否可用（见上方速率控制方式）")
-        else:
-            lines.append("上限模式会附加 -extbrc 1（实测同码率画质更稳，最差画面更好）")
-        lines.append("不使用 look-ahead：质量模式下无效，上限模式下会崩（驱动缺陷）")
-    return lines
 
 
 # ============================================================
@@ -3180,7 +3117,6 @@ def ask_choice(
     return ui_menu(title, options, default, default_label)
 
 
-
 def ask_video_quality(platform_key: str, codec_key: str) -> int:
     platform = ENCODER_PROFILES[platform_key]
     encoder = encoder_name(platform_key, codec_key)
@@ -3236,15 +3172,6 @@ def ask_video_quality(platform_key: str, codec_key: str) -> int:
 
 def format_cap(kbps: int) -> str:
     return f"{kbps / 1000:g} Mbps" if kbps >= 1000 else f"{kbps} kbps"
-
-
-def bitrate_label() -> str:
-    cap = VIDEO_BITRATE_CAP_KBPS
-    if RC_MODE == RC_MODE_QUALITY or not cap:
-        return "  |  质量优先（不限体积）"
-    if RC_MODE == RC_MODE_AUTO:
-        return f"  |  自动兜底 {format_cap(cap)}"
-    return f"  |  上限 {format_cap(cap)}"
 
 
 def cap_pair(cap_kbps: int) -> tuple[int, int]:
@@ -3374,31 +3301,6 @@ def confirm(prompt: str, default: bool = False) -> bool:
 
 
 # ============================================================
-# 显示媒体信息
-# ============================================================
-
-def print_media_info(info: MediaInfo, prefix: str = "") -> None:
-    print(f"{prefix}文件：{info.path.name}")
-    print(f"{prefix}大小：{format_bytes(info.size)}")
-    print(f"{prefix}时长：{format_duration(info.duration)}")
-    print(f"{prefix}视频：{info.video_codec} "
-          f"{info.width}x{info.height} "
-          f"{info.fps:.3f} fps "
-          f"{video_bitrate_text(info)}")
-    print(f"{prefix}像素格式：{info.pix_fmt or 'N/A'}")
-
-    if info.audio_codec != "none":
-        channels = info.channels or 2
-        layout = info.channel_layout or f"{channels}ch"
-        print(f"{prefix}音频：{info.audio_codec} "
-              f"{format_bitrate(info.audio_bitrate)} "
-              f"{info.sample_rate or 'N/A'} Hz "
-              f"{layout}")
-    else:
-        print(f"{prefix}音频：无")
-
-
-# ============================================================
 # 音频参数
 # ============================================================
 
@@ -3476,13 +3378,6 @@ def plan_label(plan: EncodePlan) -> str:
     return "质量优先"
 
 
-def predicted_size_text(plan: EncodePlan, duration: float) -> str:
-    kbps = plan.predicted_kbps
-    if not kbps or duration <= 0:
-        return ""
-    return format_bytes(kbps * 1000 / 8 * duration)
-
-
 def quality_option_args(
     platform_key: str,
     quality: int,
@@ -3545,21 +3440,6 @@ def _probe_encode_size(
             pass
 
 
-def detect_decode_tier(platform_key: str, source: Path, encoder: str) -> int:
-    """实测解码回退链，返回可用层级索引（0 最优）。
-
-    实测背景：QSV 解码设备可能整体不可用（Error creating a MFX session: -9），
-    而 d3d11va 仍然可用且速度几乎相同。旧版只有"硬解/CPU"两级。
-    """
-    chain = ENCODER_PROFILES[platform_key]["decode_chain"]
-    for idx, (label, args) in enumerate(chain):
-        if _probe_encode_size(source, args, encoder, [], seconds=0.4) is not None:
-            DECODE_TIER[platform_key] = idx
-            return idx
-    DECODE_TIER[platform_key] = len(chain) - 1
-    return len(chain) - 1
-
-
 def decode_args_for(platform_key: str) -> list[str]:
     chain = ENCODER_PROFILES[platform_key]["decode_chain"]
     idx = min(DECODE_TIER.get(platform_key, 0), len(chain) - 1)
@@ -3602,10 +3482,6 @@ def probe_rate_control_method(
     m = re.search(r"RateControlMethod:\s*(\w+)", text)
     return m.group(1).upper() if m else None
 
-
-def _sample_for_probe(source: Path) -> Path:
-    """质量/速率探测用的样本：直接编一小段源文件即可。"""
-    return source
 
 def detect_quality_knob(
     platform_key: str,
@@ -3667,42 +3543,6 @@ def detect_quality_knob(
         f"建议改用上限模式或换一个支持 ICQ 的 ffmpeg"
     )
     return EFFECTIVE_QUALITY_KNOB[platform_key]
-
-
-
-def _probe_encode_segment(
-    source: Path,
-    decode_args: list[str],
-    encoder: str,
-    quality_args: list[str],
-    start: float,
-    seconds: float,
-) -> Optional[int]:
-    out = Path(tempfile.gettempdir()) / f"dsh_probe_seg_{os.getpid()}.mp4"
-    try:
-        if out.exists():
-            out.unlink()
-        cmd = (
-            [ffmpeg_exe(), "-hide_banner", "-y", "-loglevel", "error"]
-            + decode_args
-            + ["-ss", f"{start:.3f}", "-t", f"{seconds:.3f}", "-i", str(source),
-               "-map", "0:v:0", "-c:v", encoder, "-an", str(out)]
-        )
-        cmd = cmd[: cmd.index("-map")] + quality_args + cmd[cmd.index("-map"):]
-        cp = run_command(cmd, timeout=300)
-        if cp.returncode != 0 or not out.exists() or out.stat().st_size < 1024:
-            return None
-        return out.stat().st_size
-    except Exception:
-        return None
-    finally:
-        try:
-            if out.exists():
-                out.unlink()
-        except Exception:
-            pass
-
-
 
 
 def cleanup_stale_temps(directories: list[Path], max_age_seconds: float = 3600.0) -> int:
@@ -5159,8 +4999,6 @@ def progress_bar(percent: float, width: int = 28) -> str:
     return "█" * filled + "-" * (width - filled)
 
 
-# 已经打印过"开始"行的任务号
-_PROGRESS_ANNOUNCED: set[int] = set()
 # 全局状态区（编码阶段使用）
 STATUS_BOARD = StatusBoard()
 
@@ -5285,11 +5123,8 @@ def ensure_console_on_windows() -> None:
     raise SystemExit(0)
 
 
-detected_cache: list = [None]
-
-
 def main(start_step: int = 1) -> int:
-    global STOP_REQUESTED, VIDEO_BITRATE_CAP_KBPS, RC_MODE
+    global STOP_REQUESTED, VIDEO_BITRATE_CAP_KBPS
     global FFMPEG_BIN, FFPROBE_BIN, MAX_WORKERS
 
     # 输出编码兜底：
@@ -5463,7 +5298,6 @@ def main(start_step: int = 1) -> int:
 
     # 6. 视频码率上限（默认 1.5 Mbps）
     VIDEO_BITRATE_CAP_KBPS = _ask(7, start_step, ask_video_bitrate_cap)
-    RC_MODE = RC_MODE_CAPPED if VIDEO_BITRATE_CAP_KBPS else RC_MODE_QUALITY
 
     # 7. 音频质量（默认 96k）
     audio_quality = _ask(8, start_step, ask_audio_quality)
