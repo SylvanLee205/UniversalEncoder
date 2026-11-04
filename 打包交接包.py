@@ -25,18 +25,20 @@ DEFAULT_SKIP_DIRS = {"测试素材"}
 # 2026-11-04 踩坑：桌面上的 UniversalEncoder-repo\ 与本目录同级时，有人把它
 # 复制进项目里，交接包一下子从 21 个文件涨到 270 个（5.6 MB），全是 .git 对象，
 # 对"接手看懂代码"零帮助 —— 而且仓库内容与根目录程序重复。
-ALWAYS_SKIP_DIRS = {".git", "UniversalEncoder-repo", "UniversalEncoder_备份_20261019"}
+ALWAYS_SKIP_DIRS = {".git", "__pycache__", "UniversalEncoder-repo", "UniversalEncoder_备份_20261019"}
 
 
 def should_skip(path: Path, include_media: bool) -> bool:
     if path.name in ALWAYS_SKIP_NAMES:
         return True
-    if path.name.startswith("_tmp_v"):
-        return True
     # 不要把上一版的交接包再装进来（嵌套 zip），否则每发一版体积就翻一倍。
     if path.suffix.lower() == ".zip" and path.name.startswith("UniversalEncoder_交接包"):
         return True
     for part in path.parts:
+        # 2026-11-05 踩坑：原来只判 path.name，跑完测试后 _tmp_v88\ 里的
+        # 样片（9 MB）被整个装进包里。目录名也要判，逐级查。
+        if part.startswith("_tmp_v"):
+            return True
         if part in ALWAYS_SKIP_DIRS:
             return True
         if part in DEFAULT_SKIP_DIRS and not include_media:
