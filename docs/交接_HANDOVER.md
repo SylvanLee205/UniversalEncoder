@@ -18,7 +18,7 @@
 | 先跑一遍 | 双击 `C:/Users/Administrator/Desktop//Video_ Optimize\UniversalEncoder_v88.py` |
 | 改代码 | 从 `…\Video_ Optimize\UniversalEncoder_v88.py` 改；**改完另存为 `UniversalEncoder_v89.py`，旧的 v88 不留在本机**（根目录永远只留一个程序，避免双击错版本；旧版可从 git 历史取回，见 §19） |
 | 跑测试 | `…\Video_ Optimize\归档\测试脚本\_selftest_v88.py`（52 项单测）、`_e2e_v88.py`（5 组真实菜单全流程） |
-| 入库 | 仓库 `C://Users//Administrator//Desktop//UniversalEncoder-repo`；远端 `git@github.com:SylvanLee205/UniversalEncoder.git`（SSH 公钥已配好，`git push` 直接可用） |
+| 入库 | 仓库 `C:\Users\Administrator\Desktop\Video_ Optimize\UniversalEncoder-repo`；远端 `git@github.com:SylvanLee205/UniversalEncoder.git`（SSH 公钥已配好，`git push` 直接可用） |
 | 查历史 | 本文件 §12~§18 是逐版落地记录；`归档\文档\总结\编码参数与问题总结.md` 是 32 章技术长文 |
 
 **环境**（别用错）：Python 用 `C://Python311//python.exe`（3.11.9；PATH 里的 `python` 是 3.13，别用）；
