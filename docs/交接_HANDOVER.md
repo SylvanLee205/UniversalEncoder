@@ -1,7 +1,7 @@
 # UniversalEncoder 项目交接文档（HANDOVER）
 
-> 生成时间：2026-10-18 21:47（Asia/Shanghai）；§12/§13 v85；§14 目录归档整理；§15 推送完成（SSH）；§16 v86；§17 v87 死代码清理与桌面盘点；**§18 无缝交接（2026-11-03）**
-> 当前版本：**`UniversalEncoder_v87.py`**（旧版本程序已于 2026-11-03 清理出本机，回滚靠 GitHub 的 git 历史，见 §19）
+> 生成时间：2026-10-18 21:47（Asia/Shanghai）；§12/§13 v85；§14 目录归档整理；§15 推送完成（SSH）；§16 v86；§17 v87 死代码清理与桌面盘点；§18 无缝交接（2026-11-03）；**§22 v88 修「N 卡机器误报 QSV」（2026-11-04）**
+> 当前版本：**`UniversalEncoder_v88.py`**（271,301 B / 6,292 行；旧版本程序不留在本机，回滚靠 GitHub 的 git 历史，见 §19）
 > 目的：让新的账号 / 模型 / AI 无需从头摸索即可继续本项目。**所有数据均为实测，非估算。**
 > **本文件已归档到 `…\Video_ Optimize\归档\文档\`；下面的路径表是整理后的实际位置。**
 
@@ -10,14 +10,14 @@
 ## ⚡ 30 秒速览（给接手的新 AI / 新账号，先看这一段）
 
 **这是个什么项目**：ffmpeg 驱动的**单文件 Python 批量视频压缩工具**（Intel QSV / NVIDIA NVENC 硬编），
-6,101 行、中文交互菜单。目标：**同等画质文件最小、同等体积画质最好**，尽量保住元数据、竖屏旋转、VFR。
-当前版本 **v87**，代码已同步 GitHub（远端 `main` = `1dad901`）。
+6,292 行、中文交互菜单。目标：**同等画质文件最小、同等体积画质最好**，尽量保住元数据、竖屏旋转、VFR。
+当前版本 **v88**，代码已同步 GitHub，发行版 `v88` 已发布。
 
 | 你想做什么 | 直接这么做 |
 |---|---|
-| 先跑一遍 | 双击 `C:/Users/Administrator/Desktop//Video_ Optimize\UniversalEncoder_v87.py` |
-| 改代码 | 从 `…\Video_ Optimize\UniversalEncoder_v87.py` 改；**改完另存为 `UniversalEncoder_v88.py`，旧的 v87 不留在本机**（根目录永远只留一个程序，避免双击错版本；旧版可从 git 历史取回，见 §19） |
-| 跑测试 | `…\Video_ Optimize\归档\测试脚本\_selftest_v87.py`（40 项单测）、`_e2e_v87.py`（5 组真实菜单全流程） |
+| 先跑一遍 | 双击 `C:/Users/Administrator/Desktop//Video_ Optimize\UniversalEncoder_v88.py` |
+| 改代码 | 从 `…\Video_ Optimize\UniversalEncoder_v88.py` 改；**改完另存为 `UniversalEncoder_v89.py`，旧的 v88 不留在本机**（根目录永远只留一个程序，避免双击错版本；旧版可从 git 历史取回，见 §19） |
+| 跑测试 | `…\Video_ Optimize\归档\测试脚本\_selftest_v88.py`（52 项单测）、`_e2e_v88.py`（5 组真实菜单全流程） |
 | 入库 | 仓库 `C://Users//Administrator//Desktop//UniversalEncoder-repo`；远端 `git@github.com:SylvanLee205/UniversalEncoder.git`（SSH 公钥已配好，`git push` 直接可用） |
 | 查历史 | 本文件 §12~§18 是逐版落地记录；`归档\文档\总结\编码参数与问题总结.md` 是 32 章技术长文 |
 
@@ -29,7 +29,7 @@ ffmpeg 在 `C://User Program Files\FFmpeg\bin\ffmpeg.exe`（n9.0.2，含 QSV/NVE
 2. **只有端到端实跑才算验证**；实测数据必须落盘成文件，不能只在对话里说。
 3. **不得静默绕过用户显式选项**——任何"保护性"逻辑都不许偷偷改掉用户选的值（v83 就是这么修好一个上限失效 bug 的）。
 
-**当前状态**：代码干净（死代码归零、v86/v87 行为逐字节等价、40/40 + 5/5 组测试全绿、已推送 GitHub）。
+**当前状态**：代码干净（死代码归零、v88 编码路径与 v87 逐字节等价、52/52 + 5/5 组测试全绿、已推送 GitHub 并发版）。
 
 **三件等你/等用户拍板的事（别自作主张动）**：
 - ~~`…\Video_ Optimize\1_test\`（4.6 GB 真实视频 + 两批压缩产物）要不要收进 `归档\测试素材\`？~~ → **已由用户于 2026-11-03 自行删除**（项目体积 14 GB → **8.8 GB**）。
@@ -852,3 +852,174 @@ Video_ Optimize\                      8.8 GB
    ├─ 测试素材\                       8.8 GB 无损源片（不可再生）
    └─ 4K_..._convert.bat              用户自己的 NVENC 批处理
 ```
+
+---
+
+## 21. 新 AI 接手核验记录（2026-11-03，实测）
+
+按 §18.2 流程执行，全部实跑，非引用：
+
+| 核验项 | 结果 |
+|---|---|
+| 环境自检 | ✅ ffmpeg n9.0.2-22-g46d8f462ee；`hevc_qsv`/`hevc_nvenc`/`libopus` 齐全；Python 3.11.9；dovi_tool 命中 `C:\User Program Files\DoviTool\` |
+| 程序文件 | ✅ 261,009 B / 6,101 行 / SHA256 前 16 位 `1CD735F69A05579D`，与 README ⑥ 声明一致 |
+| `_selftest_v87.py` | ✅ **PASS 40 / FAIL 0** |
+| `_e2e_v87.py` | ✅ **A/B/C/D/E 五组全通过**（含 B 组「already.mkv 仍在且未变动」等 4 项断言、E 组「面板确为 GOP 3秒 / 自检全通过 / 无 GOP 告警」） |
+
+**新踩到的环境坑（已复现两次，可稳定复现）**：在某些 shell 会话里直接跑 `_e2e_v87.py`，
+会出现「五组 rc=0、程序自身打印『自检 5 项全通过』，但脚本的**中文断言**全 False」的假失败。
+根因：e2e 脚本按 `encoding="utf-8"` 解码子进程输出（L51），而被测程序写管道时用 Windows 默认
+GBK（cp936）编码 → 中文变 mojibake → 断言匹配不上。**对策：跑 e2e 前设
+`PYTHONIOENCODING=utf-8`**（只影响子进程 stdout 编码，不改被测程序）。
+此坑与 §18.4 第一条「找不到 ffmpeg」同类：都是环境侧问题，**别改程序去迁就**。
+
+---
+
+## 22. v88 —— 修「N 卡机器误报 QSV 可用」+ GitHub 发行版（2026-11-04）
+
+### 22.1 用户报的现象
+
+> "我似乎使用 87 版本在 nVidia 设备上发现竟然检测 qsv 是可用的，看看有问题吗？"
+
+结论：**是真 bug，且不是驱动问题，是判定逻辑写错了。**
+
+### 22.2 根因（两层，缺一不可）
+
+**第一层 —— ffmpeg 的 `-encoders` 是编译期信息，不是本机能力。**
+
+本机实测：
+
+```
+$ ffmpeg -hide_banner -encoders | grep -i qsv
+ V..... av1_qsv   AV1 (Intel Quick Sync Video acceleration)
+ V..... h264_qsv  H.264 / AVC / MPEG-4 AVC
+ V..... hevc_qsv  HEVC (Intel Quick Sync Video acceleration)
+ V..... mjpeg_qsv / mpeg2_qsv / vp9_qsv
+
+$ ffmpeg -hide_banner -buildconf | grep -i vpl
+    --enable-libvpl
+```
+
+gyan 的官方 Windows 构建**默认带 `--enable-libvpl`**。也就是说：只要装了这套 ffmpeg，
+**任何一台机器**（纯 N 卡、甚至 AMD）都会在 `-encoders` 里列出全部 `*_qsv`。
+这是"这个 ffmpeg 支持 QSV"的意思，**不是**"你这台机器有 Intel 显卡"。
+
+**第二层 —— v87 的 `main()` 根本没查显卡（这是真正的 bug 所在）。**
+
+v87 第 5174~5178 行：
+
+```python
+detected = {}
+if any(str(e).endswith("_qsv") for e in AVAILABLE_ENCODERS):
+    detected["intel"] = "Intel QSV"                         # ← 一次都没查显卡
+if any(str(e).endswith("_nvenc") for e in AVAILABLE_ENCODERS) and shutil.which("nvidia-smi"):
+    detected["nvidia"] = "NVIDIA NVENC"
+if not detected:
+    detected = detect_platforms()                            # ← 只有全空时才走这里
+```
+
+而 `detect_intel()`（会真的去枚举显卡名）**只被 `detect_platforms()` 调用**。
+于是构成一个死锁式结构：
+
+| 机器形态 | 快速路径 | 后果 |
+|---|---|---|
+| 有 Intel 显卡 | `_qsv` 命中 → `intel` 直接可用 | `detect_intel()` 被**跳过** |
+| 无 Intel 显卡 | `_qsv` 仍命中（编译期） → `intel` 仍可用 | **误报**，`detect_intel()` 也被跳过 |
+
+两条路都到不了 `detect_intel()` —— 它实际上**从未生效过**。
+
+### 22.3 为什么没早发现
+
+因为**开发者本机是 Intel Arc A380**（无 N 卡），误报方向恰好是"对的"，测不出来。
+反方向（N 卡机器误报 Intel）只有在纯 N 卡环境才暴露，而这正是用户遇到的场景。
+
+### 22.4 v88 的修复
+
+1. **`real_gpu_adapters()`（L511）** —— 用 `EnumDisplayDevicesW` 枚举真实显示适配器：
+   - 厂商按 **PCI VEN 号**判（Intel=`8086` / NVIDIA=`10DE` / AMD=`1002`），不靠名字猜；
+   - 只收 `PCI\` 总线设备，`Root\` 的虚拟显示器（GameViewer / Parsec / IddCx /
+     Microsoft Basic Render 等）一律剔除；
+   - 同一张卡按输出口重复出现，用 PnP ID 去重；
+   - **实测 0.02 秒**，比原 WMI 查询的 0.30 秒快一个数量级，且不起进程、不弹窗；
+   - 任何异常返回空列表，不打断启动。
+
+2. **`detect_platforms()`（L2579）收敛为唯一入口**，返回 `(可用平台→证据, 已排除平台→原因)`：
+   - 判据改为 **「真实显卡存在 ∧ ffmpeg 有对应编码器」**，两个条件都要成立；
+   - `main()` 里那条快速路径**已删除**，避免同一结论有两个互相矛盾的来源；
+   - 返回排除原因，是为了让界面能说清"没有 Intel 显卡"和"有卡但缺 QSV 编码器"是两回事。
+
+3. **界面改成可核对的证据行**（实跑输出，本机 Intel Arc A380）：
+
+```
+=== 【1. 硬件编码平台】 ==================================
+
+   √ Intel QSV：Intel(R) Arc(TM) A380 Graphics | FFmpeg: av1_qsv, hevc_qsv | 显卡已核实
+   × NVIDIA NVENC：本机没有 NVIDIA 显卡（已枚举真实显示适配器：Intel(R) Arc(TM) A380 Graphics）
+   自动选择 Intel QSV
+```
+
+   模拟纯 N 卡机器（本机 ffmpeg 仍列出全部 `*_qsv`）时：
+
+```
+   √ NVIDIA NVENC：NVIDIA GeForce RTX 4070 | FFmpeg: av1_nvenc, hevc_nvenc | 显卡已核实
+   × Intel QSV：本机没有 Intel 显卡（已枚举：NVIDIA GeForce RTX 4070）。
+                FFmpeg 里的 av1_qsv, hevc_qsv 只是编译期支持，不代表本机能用
+   自动选择 NVIDIA NVENC
+```
+
+4. **`_platform_cache.json` 键加入显卡指纹** —— 原来只有 ffmpeg 路径 + 编码器列表，
+   而这两样换显卡时完全不变，导致 eGPU 插拔后继续沿用旧结论。
+
+5. **`benchmark_concurrency()` 里同样的"编码器列表兜底"已删** —— v87 有第二处同源误判，
+   在 `--concurrency-test` 路径上（L1149~1156），一并修掉。
+
+6. **HEVC 也做 3 帧试编码**（原来只有 AV1 做）：
+   - 实测 `hevc_qsv` 试编码 **0.78 秒**；
+   - 兜住"有 Intel 显卡但 oneVPL 会话起不来"（历史坑 `Error creating a MFX session: -9`），
+     这种情况原来会一路走到批处理才整批失败；
+   - 结果进程内缓存（`verify_encoder_cached()`），同一次运行只付一次，不落盘
+     （驱动崩了重开程序又可能可用，落盘会让"再试一次"永远无效）。
+
+7. **`detect_nvenc_hardware()` 补 `nvidia-smi` 缺席时的兜底** —— 用枚举到的显卡名识别世代，
+   否则世代一路 `unknown`、并发路数退回 1，多引擎卡白吃亏。
+
+### 22.5 验证
+
+| 项 | 结果 |
+|---|---|
+| `py_compile` | ✅ |
+| AST 关键函数存在性（14 个） | ✅ 176 个函数，无缺失 |
+| 文件规格 | 271,301 B（CRLF）/ 6,292 行 / 内容 265,009 字符 |
+| SHA256 前 16 位 | 直接 `F2A57BAAE5D4546F`；CRLF 归一化后 `5D2E5352DFBF4A9C` |
+| `_selftest_v88.py` | ✅ **PASS 52 / FAIL 0**（含新增 12 条平台检测用例） |
+| `_e2e_v88.py` | ✅ **A/B/C/D/E 五组全通过** |
+| 编码路径 | 未改动，`build_ffmpeg_command` 与 v87 逐字节一致 |
+
+新增的 12 条平台检测用例覆盖**四种机器形态**（用 monkeypatch 顶掉真实枚举，保证可复现）：
+
+| 形态 | 断言 |
+|---|---|
+| 纯 N 卡 + ffmpeg 有 qsv | 不误报 Intel；NVIDIA 正常识别；排除原因指向"没有 Intel 显卡"且说明"编译期支持" |
+| N 卡 + Intel iGPU | 两平台都可用，无排除项 |
+| 纯 Intel | Intel 可用，NVIDIA 被排除 |
+| 显卡枚举失败 | 降级结果必须标注"未核实显卡"（不许静默假装已确认） |
+
+外加 3 条针对真实枚举的：非空、厂商号 4 位十六进制、已剔除虚拟显示器、只收 `PCI\` 设备。
+
+### 22.6 本机环境事实（写在这里，免得下次再查）
+
+| 项 | 值 |
+|---|---|
+| 显卡 | **Intel(R) Arc(TM) A380 Graphics**（`PCI\VEN_8086&DEV_56A5`），**无 NVIDIA 显卡** |
+| 虚拟显示器 | `GameViewer Virtual Display Adapter`（`Root\GameViewerIddDriver`）—— 必须被剔除 |
+| `nvidia-smi` | **不存在** |
+| ffmpeg | n9.0.2，`--enable-libvpl` + `--enable-cuda-llvm`，因此同时列出 qsv 与 nvenc |
+
+**注意**：本机是**纯 Intel** 环境。任何"N 卡侧"的改动在这里**无法端到端验证**，
+只能靠 §22.5 那种 monkeypatch 形态用例 + 逻辑审查。改 N 卡相关代码时务必记住这一点，
+不要声称"已在 N 卡上验证"。
+
+### 22.7 GitHub 发行版
+
+`v88` release 已发布，附 `UniversalEncoder_v88.py` 单文件资产（拿到即可双击跑）。
+发版说明正文即 §22.1~22.5 的浓缩版。上一版 `v49` 的 release 保留不动。

@@ -19,6 +19,49 @@
 
 
 ============================================================
+v88 改动说明：修复"N 卡机器上误报 QSV 可用"
+============================================================
+现象：v87 在纯 NVIDIA 机器上也会把 Intel QSV 报成"可用"，进而在
+      平台菜单里给出 Intel QSV 选项；选进去后编码必然失败。
+
+根因（两层，都指向同一个错误前提："ffmpeg 有编码器 = 本机能用"）：
+
+  A) ffmpeg 的 -encoders 只说明 **ffmpeg 在编译时编进了** *_qsv，
+     与这台机器有没有 Intel 显卡无关。官方 gyan 构建默认带
+     --enable-libvpl，于是任何装了它的机器都会列出
+     av1_qsv / hevc_qsv / h264_qsv / vp9_qsv / mjpeg_qsv / mpeg2_qsv。
+
+  B) v87 的 main() 在平台检测上走"快速路径"：
+        if any(e.endswith("_qsv") for e in AVAILABLE_ENCODERS):
+            detected["intel"] = "Intel QSV"          # ← 一次都没查显卡
+     真正会查显卡名的 detect_intel() 只在"快速路径一个都没测到"时才调用。
+     于是：有 Intel 显卡时它被绕过；没有 Intel 显卡时快速路径又抢先命中 ——
+     两条路都到不了它，detect_intel() 实际上形同摆设。
+
+v88 的做法：
+
+  1) 新增 real_gpu_adapters() —— 用 EnumDisplayDevicesW 枚举真实显示适配器，
+     按 PCI 厂商 ID 判厂商（Intel=8086 / NVIDIA=10DE），并剔除虚拟显示器
+     （GameViewer / Parsec / IddCx / Microsoft Basic Render 等）。
+     实测耗时 0.02 秒，比 PowerShell CIM 的 0.30 秒快一个数量级，且不弹窗。
+
+  2) 平台检测收敛为**一条**路径，判据改成"显卡存在 ∧ ffmpeg 有对应编码器"。
+     不再保留"只看编码器列表"的捷径，避免同一个结论有两个互相矛盾的来源。
+
+  3) 显卡枚举失败时（非 Windows / API 异常）退回 v87 旧判据，
+     但界面明确标注"未核实显卡"，不静默假装已确认。
+
+  4) 选定平台后，对其 HEVC 编码器也做一次 3 帧试编码（原来只对 AV1 做）。
+     实测 HEVC 试编码 0.78 秒，能兜住"有 Intel 显卡但 oneVPL 会话起不来"
+     （历史坑：Error creating a MFX session: -9）这类硬件在位却跑不动的情况。
+
+  5) 检测结果里带上依据（显卡名 / ffmpeg 编码器 / 是否经过实测），
+     平台上显示的 √ 行现在是可核对的证据，而不是一句结论。
+
+============================================================
+
+
+============================================================
 v2/v3 改动说明（同目录下的原版 UniversalEncoder.py 未做任何改动）
 ============================================================
 测试环境：RTX 2060 Laptop（驱动 595.97）+ AMD R7 4800H + ffmpeg N-121464。
@@ -98,6 +141,7 @@ v3 追加：按 NVENC 世代自动选参数，并在本机实测标定
 from __future__ import annotations
 
 import concurrent.futures
+import ctypes
 import glob
 import json
 import os
@@ -179,7 +223,7 @@ CONTAINER_LABELS = {
 }
 
 # 程序版本（编码信息面板显示用；改代码就同步改这里）
-APP_VERSION = "v87"
+APP_VERSION = "v88"
 
 # FFmpeg 进度里的 out_time 多久不前进就判定卡死。
 # 注意：不能用“有没有输出行”判断——ffmpeg 即使一帧都没编出来，也会持续
@@ -434,6 +478,14 @@ NVENC_CALIBRATION_FILE = _SCRIPT_DIR / "_nvenc_calibration.json"
 NVENC_CALIBRATED: dict[str, Any] = {}    # 标定选中的参数，build_ffmpeg_command 会合并它
 NVENC_HW: dict[str, Any] = {}            # 显卡识别结果
 
+# 显卡厂商的 PCI Vendor ID（v88 平台检测用）。不按显卡名字判厂商：
+# OEM/驱动会把名字写成各种形式，但 VEN 号是硬件固定的。
+GPU_VENDOR_IDS = {
+    "intel": "8086",
+    "nvidia": "10DE",
+    "amd": "1002",
+}
+
 NVENC_GENERATIONS = {
     "turing": "Turing（NVENC 第 7 代）",
     "ampere": "Ampere（NVENC 第 7 代）",
@@ -454,6 +506,80 @@ NVENC_MULTI_ENGINE_HINTS = [
     (re.compile(r"RTX\s*40\s*70\s*Ti", re.I), 2),
     (re.compile(r"RTX\s*A\d{4}", re.I), 2),
 ]
+
+
+def real_gpu_adapters() -> list[dict[str, str]]:
+    """枚举本机真实显示适配器（Windows）。返回 [{"name","vendor","pnp"}]。
+
+    v88 新增。为什么不用 PowerShell 的 Win32_VideoController：
+      · 那条路实测 0.30 秒（CIM 要起 WMI 服务），本函数 0.02 秒；
+      · 它在部分系统上会带出虚拟显示器的噪音，还要自己过滤。
+    EnumDisplayDevicesW 是纯用户态调用，无进程、无窗口，代价可忽略。
+
+    厂商由 PCI 设备 ID 判定（PCI\\VEN_8086 = Intel，VEN_10DE = NVIDIA），
+    比匹配显卡名字可靠：OEM 会把名字改成 "Intel(R) UHD Graphics 630" 之外的
+    各种写法，但 VEN 号不会变。
+
+    只返回"这张卡真实存在"的条目；虚拟显示器一律剔除（它们不可能有编码引擎）。
+    任何异常都返回空列表，由调用方决定怎么降级——绝不抛异常打断启动。
+    """
+    if os.name != "nt":
+        return []
+
+    class _DISPLAY_DEVICEW(ctypes.Structure):
+        _fields_ = [
+            ("cb", ctypes.c_ulong),
+            ("DeviceName", ctypes.c_wchar * 32),
+            ("DeviceString", ctypes.c_wchar * 128),
+            ("StateFlags", ctypes.c_ulong),
+            ("DeviceID", ctypes.c_wchar * 128),
+            ("DeviceKey", ctypes.c_wchar * 128),
+        ]
+
+    # 虚拟/远程/软件渲染适配器：即使有名字也不是物理 GPU。
+    VIRTUAL_HINTS = (
+        "gameviewer", "parsec", "spacedesk", "iddcx", "virtual display",
+        "microsoft basic", "remote display", "usb display", "sunshine",
+        "toDesk".lower(), "anydesk", "vdd", "virtual", "render only",
+        "meta virtual", "oculus", "displaylink",
+    )
+
+    adapters: list[dict[str, str]] = []
+    seen: set[str] = set()
+    try:
+        enum = ctypes.windll.user32.EnumDisplayDevicesW    # type: ignore[attr-defined]
+        enum.restype = ctypes.c_bool
+        index = 0
+        while True:
+            dev = _DISPLAY_DEVICEW()
+            dev.cb = ctypes.sizeof(dev)
+            if not enum(None, index, ctypes.byref(dev), 0):
+                break
+            index += 1
+            if index > 64:          # 防御：枚举不该有这么多条目
+                break
+            name = (dev.DeviceString or "").strip()
+            pnp = (dev.DeviceID or "").strip()
+            if not name or not pnp:
+                continue
+            low = name.lower()
+            if any(h in low for h in VIRTUAL_HINTS):
+                continue
+            # 只认挂在 PCI 总线上的设备：虚拟显示器是 Root\... 枚举出来的。
+            if not pnp.upper().startswith("PCI\\"):
+                continue
+            if pnp in seen:         # 同一张卡会按输出口重复出现
+                continue
+            seen.add(pnp)
+            vendor = ""
+            upper = pnp.upper()
+            k = upper.find("VEN_")
+            if k >= 0:
+                vendor = upper[k + 4:k + 8]
+            adapters.append({"name": name, "vendor": vendor, "pnp": pnp})
+    except Exception:
+        return []
+    return adapters
 
 
 def detect_nvenc_hardware() -> dict[str, Any]:
@@ -481,6 +607,15 @@ def detect_nvenc_hardware() -> dict[str, Any]:
             pass
 
     name = str(hw["gpu"])
+    if not name:
+        # v88：nvidia-smi 缺席（精简系统 / 容器 / 驱动只装了内核态组件）时，
+        # 用显卡枚举拿到的名字兜底。否则世代会一路 unknown，并发路数也退回 1，
+        # 多引擎卡白吃亏。名字精度不如 nvidia-smi（可能带 "(TM)" 之类），
+        # 但正则匹配型号数字够用。
+        names = _gpu_names_for("nvidia", real_gpu_adapters())
+        if names:
+            name = names[0]
+            hw["gpu"] = name
     if re.search(r"RTX\s*50\s*\d0|RTX\s*PRO\s*\d+\s*Blackwell", name, re.I):
         gen = "blackwell"
     elif re.search(r"RTX\s*40\s*\d0", name, re.I):
@@ -999,43 +1134,48 @@ def benchmark_concurrency(root: Path) -> int:
     _t_before_detect = time.monotonic()
     _t_env = time.monotonic()
     _plat_cache = Path(__file__).resolve().parent / "_platform_cache.json"
+    # v88：缓存键加上显卡指纹。换了显卡/插拔 eGPU 后旧缓存不该继续生效——
+    # 原键只有 ffmpeg 路径 + 编码器列表，而这两样在换显卡时完全不变。
+    gpu_key = "|".join(sorted("%s:%s" % (a["vendor"], a["name"])
+                              for a in real_gpu_adapters())) or "no-gpu"
     detected = None
+    rejected: dict[str, str] = {}
     try:
         _pc = json.loads(_plat_cache.read_text(encoding="utf-8"))
         if _pc.get("ffmpeg") == (FFMPEG_BIN or "ffmpeg") \
-                and _pc.get("encoders") == sorted(AVAILABLE_ENCODERS):
+                and _pc.get("encoders") == sorted(AVAILABLE_ENCODERS) \
+                and _pc.get("gpu") == gpu_key:
             detected = _pc.get("platforms") or None
+            rejected = _pc.get("rejected") or {}
     except Exception:
         detected = None
     if detected:
         ui_hint("平台检测：沿用上次结果（" + " / ".join(detected.values()) + "）")
     else:
-        detected = detect_platforms()
-        if detected:
-            try:
-                _plat_cache.write_text(json.dumps(
-                    {"ffmpeg": FFMPEG_BIN or "ffmpeg",
-                     "encoders": sorted(AVAILABLE_ENCODERS),
-                     "platforms": detected}, ensure_ascii=False), encoding="utf-8")
-            except Exception:
-                pass
-    if not detected:
-        _fb = {}
-        if any(str(e).endswith("_qsv") for e in AVAILABLE_ENCODERS):
-            _fb["intel"] = "Intel QSV"
-        if any(str(e).endswith("_nvenc") for e in AVAILABLE_ENCODERS):
-            _fb["nvidia"] = "NVIDIA NVENC"
-        if _fb:
-            detected = _fb
-            ui_hint("硬件探测未返回结果，已用 ffmpeg 编码器列表兜底：" + " / ".join(_fb.values()))
+        detected, rejected = detect_platforms()
+        try:
+            _plat_cache.write_text(json.dumps(
+                {"ffmpeg": FFMPEG_BIN or "ffmpeg",
+                 "encoders": sorted(AVAILABLE_ENCODERS),
+                 "gpu": gpu_key,
+                 "platforms": detected,
+                 "rejected": rejected}, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+    # 注意：这里**不再**用"ffmpeg 编码器列表"兜底。v87 的兜底会把任何带 libvpl
+    # 构建的机器误判成有 Intel 平台——这正是本轮要修的 bug，不能留着。
     print("   " + dim("  · 平台探测 %.1f 秒" % (time.monotonic() - _t_before_detect)), flush=True)
+    if not detected:
+        print("没有检测到可用的硬件编码平台。")
+        for key, why in rejected.items():
+            print("   " + dim("%s：%s" % (ENCODER_PROFILES[key]["name"], why)))
+        return 1
+    # 并发实测只用来量"这台机器能跑几路"，用哪个平台对结论影响不大，
+    # 所以按固定优先级取一个，不弹菜单（避免 benchmark 变成半交互）。
     if "nvidia" in detected:
         platform_key = "nvidia"
-    elif "intel" in detected:
-        platform_key = "intel"
     else:
-        print("没有检测到可用的硬件编码平台。")
-        return 1
+        platform_key = "intel"
     codec_key = "hevc"
     encoder = encoder_name(platform_key, codec_key)
     prepare_encoder_capabilities(encoder)
@@ -2358,87 +2498,121 @@ class StatusBoard:
             self._content = []
 
 
-def detect_nvidia() -> tuple[bool, str]:
-    """快速检测 NVIDIA：nvidia-smi + FFmpeg NVENC 编译支持。"""
-    if not shutil.which("nvidia-smi"):
-        # 交叉验证：PATH 里没有 nvidia-smi（通常=没装 N 驱动），但如果 ffmpeg 里有
-        # *_nvenc 编码器，就不武断排除，交给上层菜单让用户自己选。
-        if not any(str(e).endswith("_nvenc") for e in AVAILABLE_ENCODERS):
-            return False, "未安装 nvidia-smi（没有 NVIDIA 驱动）"
-        return False, "有 nvenc 编码器但找不到 nvidia-smi，未自动确认"
-    smi = shutil.which("nvidia-smi")
-    if not smi:
-        return False, "未找到 nvidia-smi"
+def _gpu_names_for(vendor_key: str, adapters: list[dict[str, str]]) -> list[str]:
+    """从枚举结果里挑出指定厂商的显卡名。厂商按 PCI VEN 号判，不靠名字猜。"""
+    vid = GPU_VENDOR_IDS.get(vendor_key)
+    return [a["name"] for a in adapters if vid and a["vendor"] == vid]
 
-    try:
-        cp = run_command(
-            [smi, "--query-gpu=name,driver_version", "--format=csv,noheader"],
-            timeout=5,
-        )
-        if cp.returncode == 0 and cp.stdout.strip():
-            lines = [line.strip() for line in cp.stdout.splitlines() if line.strip()]
-            nvenc = [x for x in ("av1_nvenc", "hevc_nvenc") if x in AVAILABLE_ENCODERS]
-            if nvenc:
-                return True, f"{'; '.join(lines)} | FFmpeg: {', '.join(nvenc)}"
-            return False, f"发现 NVIDIA GPU，但当前 FFmpeg 没有 NVENC encoder：{'; '.join(lines)}"
-        return False, (cp.stderr or "nvidia-smi 无可用 GPU").strip()
-    except Exception as e:
-        return False, str(e)
+
+def detect_nvidia() -> tuple[bool, str]:
+    """检测 NVIDIA NVENC 可用性：真实 NVIDIA 显卡 ∧ ffmpeg 有 NVENC 编码器。
+
+    v88：判据从"nvidia-smi 在不在"改成"显卡在不在"。原判据在容器/精简系统里
+    会因为 nvidia-smi 缺席而把好好的 N 卡判成不可用；反过来，只要装了带
+    *_nvenc 的 ffmpeg，那台机器即使没 N 卡也会被列出 NVENC（编译期支持）。
+    所以两个条件都必须验证。
+    """
+    nvenc = [x for x in ("av1_nvenc", "hevc_nvenc") if x in AVAILABLE_ENCODERS]
+    adapters = real_gpu_adapters()
+    nvidia_names = _gpu_names_for("nvidia", adapters)
+
+    # nvidia-smi 仍然用来补充型号与驱动版本（有就用，没有不影响判定）
+    smi_names: list[str] = []
+    smi = shutil.which("nvidia-smi")
+    if smi:
+        try:
+            cp = run_command([smi, "--query-gpu=name,driver_version",
+                              "--format=csv,noheader"], timeout=5)
+            if cp.returncode == 0:
+                smi_names = [x.strip() for x in (cp.stdout or "").splitlines() if x.strip()]
+        except Exception:
+            pass
+
+    detail_names = smi_names or nvidia_names
+    if nvidia_names or smi_names:
+        if nvenc:
+            return True, (f"{'; '.join(detail_names)} | FFmpeg: {', '.join(nvenc)}"
+                          " | 显卡已核实")
+        return False, (f"发现 NVIDIA GPU（{'; '.join(detail_names)}），"
+                       f"但当前 FFmpeg 没有 NVENC 编码器")
+    if not adapters:
+        # 枚举失败（非 Windows 或 API 异常）：退回旧判据，但必须标明没核实。
+        if nvenc:
+            return True, (f"未能枚举显卡（降级判定）；FFmpeg 有 {', '.join(nvenc)}，"
+                          "未核实本机是否有 NVIDIA 显卡")
+        return False, "未能枚举显卡，且 FFmpeg 没有 NVENC 编码器"
+    return False, ("本机没有 NVIDIA 显卡（已枚举真实显示适配器："
+                   f"{'; '.join(a['name'] for a in adapters) or '无'}）")
 
 
 def detect_intel() -> tuple[bool, str]:
-    """快速检测 Intel QSV。启动阶段不做 QSV 初始化测试，避免误把慢启动变成常态。"""
-    if not any(str(e).endswith("_qsv") for e in AVAILABLE_ENCODERS):
-        return False, "ffmpeg 没有 QSV 编码器"
-    names: list[str] = []
+    """检测 Intel QSV 可用性：真实 Intel 显卡 ∧ ffmpeg 有 QSV 编码器。
 
-    if os.name == "nt":
-        ps = shutil.which("powershell") or shutil.which("pwsh")
-        if ps:
-            try:
-                cp = run_command(
-                    [
-                        ps, "-NoProfile", "-NonInteractive", "-Command",
-                        "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name",
-                    ],
-                    timeout=5,
-                )
-                if cp.returncode == 0:
-                    names = [x.strip() for x in cp.stdout.splitlines() if x.strip()]
-            except Exception:
-                pass
-
-    intel_names = [n for n in names if "intel" in n.lower()]
+    v88 的要点（v87 的 bug 就在这）：ffmpeg 的 -encoders 是**编译期**信息。
+    gyan 等官方构建默认 --enable-libvpl，于是任何机器（哪怕纯 N 卡）
+    都会列出 av1_qsv / hevc_qsv / vp9_qsv。只看这个列表必然误判。
+    """
     qsv = [x for x in ("av1_qsv", "hevc_qsv") if x in AVAILABLE_ENCODERS]
+    adapters = real_gpu_adapters()
+    intel_names = _gpu_names_for("intel", adapters)
 
-    if intel_names and qsv:
-        return True, f"{'; '.join(intel_names)} | FFmpeg: {', '.join(qsv)}"
     if intel_names:
-        return False, f"发现 Intel GPU，但当前 FFmpeg 没有 QSV encoder：{'; '.join(intel_names)}"
-    return False, "未检测到可用 Intel QSV 平台"
+        if qsv:
+            return True, (f"{'; '.join(intel_names)} | FFmpeg: {', '.join(qsv)}"
+                          " | 显卡已核实")
+        return False, (f"发现 Intel 显卡（{'; '.join(intel_names)}），"
+                       "但当前 FFmpeg 没有 QSV 编码器")
+
+    others = "; ".join(a["name"] for a in adapters) or "无"
+    if not adapters:
+        if qsv:
+            return True, (f"未能枚举显卡（降级判定）；FFmpeg 有 {', '.join(qsv)}，"
+                          "未核实本机是否有 Intel 显卡")
+        return False, "未能枚举显卡，且 FFmpeg 没有 QSV 编码器"
+    if qsv:
+        # 最需要解释的一种情况：编码器列表里有 qsv，但机器上根本没有 Intel 显卡。
+        return False, (f"本机没有 Intel 显卡（已枚举：{others}）。"
+                       f"FFmpeg 里的 {', '.join(qsv)} 只是编译期支持，不代表本机能用")
+    return False, f"本机没有 Intel 显卡（已枚举：{others}）"
 
 
-def detect_platforms() -> dict[str, str]:
-    # 并行检测，避免 PowerShell/CIM 与 nvidia-smi 的启动时间串行叠加。
-    # 启动阶段只做“存在性 + FFmpeg encoder”检查，不初始化真正的编码会话。
-    result: dict[str, str] = {}
+def detect_platforms() -> tuple[dict[str, str], dict[str, str]]:
+    """唯一的平台探测入口。返回 (可用平台→证据, 已排除平台→原因)。
+
+    v88：删掉了 main() 里那条"只要 ffmpeg 有 *_qsv 就认定 Intel 可用"的快速路径。
+    那条路径与 detect_intel() 结论互相矛盾，且不查显卡，是误报的直接来源。
+    现在所有调用方都走这里，结论只有一个出处。
+
+    返回排除原因是为了让界面能说清"为什么不可用"——"没有 Intel 显卡"和
+    "有 Intel 显卡但 ffmpeg 缺 QSV"是完全不同的问题，用户要知道是哪一种。
+    """
+    ok: dict[str, str] = {}
+    rejected: dict[str, str] = {}
+    # nvidia-smi 要起进程（数十毫秒），Intel 判定完全不需要，所以并行跑。
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         nf = pool.submit(detect_nvidia)
         inf = pool.submit(detect_intel)
-        nvidia_ok, nvidia_detail = nf.result()
-        intel_ok, intel_detail = inf.result()
-    if intel_ok:
-        result["intel"] = intel_detail
-    if nvidia_ok:
-        result["nvidia"] = nvidia_detail
-    return result
+        for key, fut in (("intel", inf), ("nvidia", nf)):
+            try:
+                available, detail = fut.result()
+            except Exception as e:      # 单个探测炸掉不该拖死整个启动
+                rejected[key] = f"检测异常：{e}"
+                continue
+            (ok if available else rejected)[key] = detail
+    return ok, rejected
 
 
-def choose_platform(detected: dict[str, str]) -> str:
+def choose_platform(detected: dict[str, str],
+                    rejected: Optional[dict[str, str]] = None) -> str:
+    """平台选择菜单。
+
+    rejected：已排除的平台 → 排除原因。v88 新增，用于把"为什么不可用"
+    明确打在屏幕上。原来只打印成功的 √ 行，用户看到"只检测到 NVENC"
+    时无法判断是"没有 Intel 显卡"还是"驱动/ffmpeg 缺 QSV"。
+    """
     ui_gap(3)
     print(color(ui_module_line("【1. 硬件编码平台】"), "magenta", bold=True))
     print()
-    print(f"   {dim('正在自动检测 Intel QSV / NVIDIA NVENC……')}")
 
     if detected:
         for key, detail in detected.items():
@@ -2446,6 +2620,10 @@ def choose_platform(detected: dict[str, str]) -> str:
             print(color(f"   √ {label}：{detail}", "green"))
     else:
         print(color("   ! 未能自动确认可用的 Intel / NVIDIA 硬件编码平台。", "yellow"))
+
+    for key, why in (rejected or {}).items():
+        label = ENCODER_PROFILES[key]["name"]
+        print(color(f"   × {label}：{why}", "yellow"))
 
     if len(detected) == 1:
         key = next(iter(detected))
@@ -2479,6 +2657,7 @@ def choose_platform(detected: dict[str, str]) -> str:
         default="1",
     )
     return "intel" if manual == "1" else "nvidia"
+
 
 def ffprobe_json(path: Path) -> dict[str, Any]:
     args = [
@@ -2634,6 +2813,21 @@ def verify_encoder_available(encoder: str) -> tuple[bool, str]:
         return False, picked
 
     return True, "编码器已通过 3 帧试编码"
+
+
+# 3 帧试编码的结果缓存：同一次运行里同一个编码器只测一次。
+# 键 = 编码器名；值 = (是否可用, 说明)。进程退出即失效，不落盘——
+# 驱动崩了重启后又可能可用，缓存到磁盘会让"重开程序再试一次"永远无效。
+_VERIFY_CACHE: dict[str, tuple[bool, str]] = {}
+
+
+def verify_encoder_cached(encoder: str) -> tuple[bool, str]:
+    """verify_encoder_available 的进程内缓存版（v88）。"""
+    hit = _VERIFY_CACHE.get(encoder)
+    if hit is None:
+        hit = verify_encoder_available(encoder)
+        _VERIFY_CACHE[encoder] = hit
+    return hit
 
 
 # ============================================================
@@ -5169,16 +5363,13 @@ def main(start_step: int = 1) -> int:
         return 0
 
     # 1. 自动检测编码平台
-    # 平台判断优先看 ffmpeg 编码器列表：有 *_qsv 即认定 Intel；有 *_nvenc 且存在
-    # nvidia-smi 才认 NVIDIA。都不成立时才回落到硬件探测——常规启动不再做显卡查询。
-    detected = {}
-    if any(str(e).endswith("_qsv") for e in AVAILABLE_ENCODERS):
-        detected["intel"] = "Intel QSV"
-    if any(str(e).endswith("_nvenc") for e in AVAILABLE_ENCODERS) and shutil.which("nvidia-smi"):
-        detected["nvidia"] = "NVIDIA NVENC"
-    if not detected:
-        detected = detect_platforms()
-    platform_key = _ask(1, start_step, choose_platform, detected)
+    # v88：这里原来是条"快速路径"——只要 ffmpeg 有 *_qsv 就认定 Intel 可用，
+    # 一次都没查显卡。而 ffmpeg 的编码器列表只是编译期信息（官方 gyan 构建
+    # 默认带 libvpl），任何机器都会列出 av1_qsv/hevc_qsv，导致纯 N 卡机器上
+    # 也报"Intel QSV 可用"。现在统一走 detect_platforms()，判据是
+    # "真实显卡存在 ∧ ffmpeg 有对应编码器"，结论只有一个出处。
+    detected, rejected = detect_platforms()
+    platform_key = _ask(1, start_step, choose_platform, detected, rejected)
     PLATFORM_STATE["key"] = platform_key
     print("   " + dim("启动总耗时 %.1f 秒" % (time.monotonic() - _t_boot)), flush=True)
     platform = ENCODER_PROFILES[platform_key]
@@ -5213,19 +5404,19 @@ def main(start_step: int = 1) -> int:
     codec_key = "hevc" if codec_choice == "1" else "av1"
     encoder = encoder_name(platform_key, codec_key)
 
-    # 编译支持 ≠ 本机能跑（典型：Turing 卡选了 AV1，芯片里没有 AV1 编码单元）。
-    # 但 HEVC/H.264 在所有受支持的硬件上都有，试编码只是白等 0.3~3 秒
-    # （N 卡首次初始化 CUDA 更慢），所以只在 AV1 上做真机确认。
-    if codec_key == "av1":
-        ui_hint(f"正在确认 {encoder} 能否在本机初始化（试编码，约 1 秒）……")
-        encoder_ok, encoder_note = verify_encoder_available(encoder)
-    else:
-        encoder_ok = encoder in AVAILABLE_ENCODERS
-        encoder_note = "编码器列表已包含（HEVC 全世代支持，跳过试编码）"
+    # 编译支持 ≠ 本机能跑。v88：HEVC 也做一次 3 帧试编码。
+    # 原来只有 AV1 验证，理由是"HEVC 全世代都有，试编码白等"。
+    # 但"显卡在 ∧ ffmpeg 有编码器"仍不等于"会话能起来"——历史上踩过
+    # Error creating a MFX session: -9（Intel 显卡在位但 oneVPL 起不来），
+    # 那种情况会一路走到批处理才整批失败。实测 HEVC 试编码 0.78 秒，
+    # 用这 0.78 秒换掉"整批失败"很划算；结果在本次运行内缓存，只付一次。
+    ui_hint(f"正在确认 {encoder} 能否在本机初始化（3 帧试编码，约 1 秒）……")
+    encoder_ok, encoder_note = verify_encoder_cached(encoder)
     if not encoder_ok:
         print()
         ui_err(f"{encoder} 在本机无法初始化：{encoder_note}")
-        ui_hint("常见原因：FFmpeg 编进了这个编码器，但显卡没有对应的编码单元"
+        ui_hint("已确认显卡与 ffmpeg 编码器都在，但编码会话起不来。常见原因："
+                "驱动版本不匹配、oneVPL/MFX 运行时缺失、或该卡没有对应编码单元"
                 "（例如 Turing / RTX 20 系没有 AV1 编码器）。")
         ui_hint(f"FFmpeg 报告的硬件编码器：{', '.join(sorted(AVAILABLE_ENCODERS)) or '无'}")
         pause()
