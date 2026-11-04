@@ -52,10 +52,10 @@ ffmpeg 在 `C://User Program Files\FFmpeg\bin\ffmpeg.exe`（n9.0.2，含 QSV/NVE
 
 | 用途 | 路径 |
 |---|---|
-| **当前程序** | `C:\Users\Administrator\Desktop\Video_ Optimize\UniversalEncoder_v87.py` |
-| 上一版（回滚点） | **本机不保留旧版本程序**（2026-11-03 清理，见 §19）；用 `git checkout 528dd3d -- UniversalEncoder.py` 从 GitHub 历史取回 v86 |
-| 本轮测试脚本 | `…\Video_ Optimize\归档\测试脚本\_selftest_v87.py`（40 项）、`_e2e_v87.py`（5 组交互全流程） |
-| 程序副本 | `C:\Users\Administrator\Desktop\UniversalEncoder-repo\UniversalEncoder.py`（`VideoEncodeTest\` 已被用户删除） |
+| **当前程序** | `C:\Users\Administrator\Desktop\Video_ Optimize\UniversalEncoder_v88.py` |
+| 上一版（回滚点） | **本机不保留旧版本程序**（见 §19）；用 `git checkout 1dad901 -- UniversalEncoder.py` 取回 v87、`528dd3d` 取回 v86 |
+| 本轮测试脚本 | `…\Video_ Optimize\归档\测试脚本\_selftest_v88.py`（52 项）、`_e2e_v88.py`（5 组交互全流程） |
+| 程序副本 | `C:\Users\Administrator\Desktop\Video_ Optimize\UniversalEncoder-repo\UniversalEncoder.py`（与根目录 v88 逐字节相同） |
 | **技术文档（32 章）** | `…\Video_ Optimize\归档\文档\总结\编码参数与问题总结.md` |
 | 项目总结（菜单速查） | `…\Video_ Optimize\归档\文档\总结\项目总结.md` |
 | VMAF 对比报告（6 份 HTML） | `…\Video_ Optimize\归档\文档\报告\` |

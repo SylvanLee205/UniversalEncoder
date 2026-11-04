@@ -2,7 +2,7 @@
 
 > 用法：换 AI 后，把下面「----」之间的全部内容原样发给它即可。
 > 这段是**自包含**的——不需要它读过本项目的任何历史对话。
-> 拿不准时，让它再去读 `C:\Users\Administrator\Desktop\Video_ Optimize\归档\文档\交接_HANDOVER.md`（主文档，§0~§18）。
+> 拿不准时，让它再去读 `C:\Users\Administrator\Desktop\Video_ Optimize\归档\文档\交接_HANDOVER.md`（主文档，§0~§22）。
 
 ---
 
@@ -12,51 +12,52 @@
 
 ### 项目是什么
 
-`UniversalEncoder` —— 一个用 ffmpeg 驱动的**单文件 Python 批量视频压缩工具**（6,101 行，中文交互菜单）。
+`UniversalEncoder` —— 一个用 ffmpeg 驱动的**单文件 Python 批量视频压缩工具**（6,292 行，中文交互菜单）。
 支持 Intel QSV / NVIDIA NVENC 硬编，目标：**同等画质文件最小、同等体积画质最好**，
 同时尽量保留原片元数据、竖屏旋转、VFR 与可播性。
-已有 87 个版本迭代（v1.0 → v87），所有设计取舍和实测数据都写在文档里。
+已有 88 个版本迭代（v1.0 → v88），所有设计取舍和实测数据都写在文档里。
 
 ### 文件在哪（全在本机）
 
 | 用途 | 路径 |
 |---|---|
-| **当前程序** | `C:\Users\Administrator\Desktop\Video_ Optimize\UniversalEncoder_v87.py` |
-| 上一版（回滚点） | `…\Video_ Optimize\归档\旧版本\UniversalEncoder_v86.py`（v84/v85 也在那） |
-| **主交接文档（先读这个）** | `…\Video_ Optimize\归档\文档\交接_HANDOVER.md`（§0~§18） |
+| **当前程序** | `C:\Users\Administrator\Desktop\Video_ Optimize\UniversalEncoder_v88.py` |
+| 上一版（回滚点） | 不在本机——旧版一律清出，回滚靠 git：`git checkout 1dad901 -- UniversalEncoder.py`（v87）、`528dd3d`（v86）、`c32662b`（v85） |
+| **主交接文档（先读这个）** | `…\Video_ Optimize\归档\文档\交接_HANDOVER.md`（§0~§22） |
 | 技术长文（32 章，实测数据唯一出处） | `…\Video_ Optimize\归档\文档\总结\编码参数与问题总结.md` |
 | 菜单速查（一页） | `…\Video_ Optimize\归档\文档\总结\项目总结.md` |
 | 目录结构与还原方法 | `…\Video_ Optimize\归档\README.md` |
-| 测试脚本 | `…\Video_ Optimize\归档\测试脚本\_selftest_v87.py`（40 项单测）、`_e2e_v87.py`（5 组真实菜单全流程） |
-| git 仓库 | `C:\Users\Administrator\Desktop\UniversalEncoder-repo`（远端 `git@github.com:SylvanLee205/UniversalEncoder.git`，`main` = `1dad901`，已同步） |
+| 测试脚本 | `…\Video_ Optimize\归档\测试脚本\_selftest_v88.py`（52 项单测）、`_e2e_v88.py`（5 组真实菜单全流程） |
+| git 仓库 | `C:\Users\Administrator\Desktop\Video_ Optimize\UniversalEncoder-repo`（远端 `git@github.com:SylvanLee205/UniversalEncoder.git`，`main` = `23f0027`，已同步；发行版 `v88` 已发布） |
 | ffmpeg | `C:\User Program Files\FFmpeg\bin\ffmpeg.exe`（n9.0.2，含 QSV/NVENC/libvmaf） |
 | Python | `C:\Python311\python.exe`（3.11.9。**PATH 里的 `python` 是 3.13，别用**） |
 | dovi_tool | `C:\User Program Files\DoviTool\dovi_tool.exe`（已在 PATH，**故意不放项目目录**） |
 
-### 现在什么状态（截至 2026-11-03）
+### 现在什么状态（截至 2026-11-05）
 
-- 代码**干净且已入库**：v87 是纯清理版（删死代码 169 行、改 3 行，零功能改动）；
-  死代码扫描归零；v86/v87 生成的 ffmpeg 命令**逐字节一致**；`_selftest_v87.py` **40/40**、
-  `_e2e_v87.py` **5 组全流程通过**；GitHub 远端 `main` = `1dad901`，本地↔远端 `0 0`。
+- 代码**干净且已入库**：v88 修掉了「N 卡机器误报 QSV 可用」（平台检测改为必须核实真实显卡）；
+  **编码路径一行未改**，`build_ffmpeg_command` 与 v87 逐字节一致；`_selftest_v88.py` **52/52**、
+  `_e2e_v88.py` **5 组全流程通过**；GitHub 远端 `main` = `23f0027`，本地↔远端 `0 0`。
 - **没有正在进行的活儿**。你接手时是一个"绿"的干净基线。
-- 有 **3 件等我拍板的事**，别自作主张动：
+- 曾经有 3 件等拍板的事，**现已全部结清**，无待办：
   - ~~`1_test\`（4.6 GB 真实视频）要不要收进 `归档\测试素材\`？~~ → **已由用户于 2026-11-03 自行删除**（项目体积 14 GB → **8.8 GB**）。
   - GOP 帧数下限**保持 48 帧，不改**（2026-11-03 用户决定）。理由：48 帧是 **QSV 硬件的最小关键帧间隔**（实测 22fps 设 2 秒实际得 2.18 秒），改成 24 帧编码器仍会抬回 48，等于白改；自检已如实按夹紧后的实际值判定，不会误报。
-  3. 归档里 v85/v86 的 4 个历史测试脚本是否精简（建议留着）。
+  - 归档里 v85/v86 的历史测试脚本 → 已随 2026-11-03 旧版清理一并移出本机（需要时从 git 找回）。
 
 ### 你必须遵守的约定（用户明确要求过）
 
 1. **根目录永远只留一个 `UniversalEncoder_vNN.py`**——理由是"避免双击错版本"。
-   每出一版，旧版**立刻**移进 `归档\旧版本\`。`Renamer_iPhone_Screenrecording.py` 是用户常用的
-   重命名工具，**留在根目录**；`dovi_tool.exe` 放 PATH，**不放项目目录**（用户嫌容易认错）。
+   每出一版，旧版**立刻**清出本机（不留在 `归档\旧版本\`、不留在根目录），**回滚一律靠 git 历史**。
+   理由是旧逻辑会误导后续检索，而 git 里都有逐字节相同的副本。
+   `Renamer_iPhone_Screenrecording.py` 是用户常用的重命名工具，**留在根目录**；
+   `dovi_tool.exe` 放 PATH，**不放项目目录**（用户嫌容易认错）。
 2. **要"地毯式排查"**：我明确要求过把代码和逻辑整个过一遍，不要抽查了事。
    已有的排查手法（AST 扫"函数内赋值全局变量却缺 `global`"、扫死代码、跨版本行为逐字节对比）
    见交接文档 §16.3 / §17.2 和技术文档第三十二章。
 3. **"实测数据必须落盘成文件"**：不接受只在对话里说"应该没问题"。每轮改动要有可复跑的脚本 +
    落盘的记录（技术文档加章节、CHANGELOG、交接文档加落地记录）。
-4. **不擅自删除我的文件**：桌面个人目录（`UniversalEncoder_备份_20261019\`、
-   `UniversalEncoder-repo\`）一律**先问再动**。项目内 `__pycache__` / `.DS_Store` / 测试临时产物
-   这类可再生物可以直接清；旧日志**移进归档而不是删掉**。
+4. **不擅自删除我的文件**：桌面个人目录（`UniversalEncoder_备份_20261019\` 等）一律**先问再动**。
+   项目内 `__pycache__` / `.DS_Store` / 测试临时产物这类可再生物可以直接清；旧日志**移进归档而不是删掉**。
 5. **文档三件套必须同步**：技术长文（章节序号递增）、`CHANGELOG.md`、`项目总结.md` 菜单速查，
    外加交接文档的落地记录——上一版漏了哪个都会被下一个人踩。
 6. **中文沟通，结论先行。**
@@ -73,22 +74,25 @@
 | 现象 | 怎么办 |
 |---|---|
 | 报「找不到 ffmpeg」 | 当前 shell 的 PATH 不含 `C:\User Program Files\FFmpeg\bin`。给子进程 PATH 加上即可；`_e2e_vNN.py` 已内置。**别改程序去迁就环境** |
+| **N 卡机器上程序说 QSV 可用** | 这是 v87 的老 bug，v88 已修。根因：`ffmpeg -encoders` 是**编译期**信息（gyan 构建默认 `--enable-libvpl`，任何机器都列出 `*_qsv`），**不代表本机有 Intel 显卡**。判据必须是「真实显卡存在 ∧ ffmpeg 有对应编码器」。详见交接文档 §22 |
+| 显卡枚举用了 PowerShell/WMI | 慢（0.30 秒）且会起进程。用 `real_gpu_adapters()`（`EnumDisplayDevicesW`，实测 0.02 秒），并按 PCI VEN 号判厂商、剔除 `Root\` 虚拟显示器 |
 | `git push` 报 `Connection closed by 198.18.0.x` | 环境侧出口受限，**不是认证坏**。等几分钟重试，或换 `ssh.github.com:443`。见交接文档 §17.3b |
 | 远端文件"哈希不一致" | 仓库 `core.autocrlf=true`（存 LF、检出 CRLF），归一化换行后再比，否则会误判"没推上去"（§15.1） |
 | 喂 stdin 跑 e2e 菜单序号对不上 | 【1.硬件平台】自动检测成功时**不占用输入行**，序号整体前移一位。先跑探针看它问了哪几步，别猜 |
 | 自检报「GOP 异常」 | 自检基准必须**来自用户本次设定**，不是写死的区间。基准推导见 `expected_gop_seconds()`（§16.2） |
 | 自检报「上限未达成」但用户开了质量地板 | 那是用户明确选择（"宁可码率超上限"），应列「自检说明」而非「未达标」 |
+| 打包交接包突然变大（几百个文件） | `打包交接包.py` 已排除 `.git` / `UniversalEncoder-repo` / 嵌套 zip；若又膨胀，先看是不是新增了大目录 |
 
 ### 你的第一步
 
-1. 读 `…\归档\文档\交接_HANDOVER.md` 的「⚡ 30 秒速览」+ §1 + §17 + §18。
-2. 跑环境自检 + 现有测试，确认接手的是绿基线：
+1. 读 `…\归档\文档\交接_HANDOVER.md` 的「⚡ 30 秒速览」+ §1 + §17 + §18 + §22。
+2. 跑现有测试，确认接手的是绿基线：
    ```bat
    cd /d C:\Users\Administrator\Desktop\Video_ Optimize\归档\测试脚本
-   C:\Python311\python.exe _selftest_v87.py
-   C:\Python311\python.exe _e2e_v87.py
+   C:\Python311\python.exe _selftest_v88.py
+   C:\Python311\python.exe _e2e_v88.py
    ```
-3. 问我下一步要做什么；或者直接从我上面列的 3 件待拍板的事开始。
+3. 问我下一步要做什么。目前**无待拍板事项**，项目是干净基线。
 
 ---
 
